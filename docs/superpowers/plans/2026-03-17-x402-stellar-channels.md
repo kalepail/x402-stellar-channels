@@ -1236,17 +1236,6 @@ export function verifyState(
 
 /**
  * Derives channel_id matching the contract: sha256(agent_pubkey_32 || nonce_32).
- * agent_pubkey_32: raw 32-byte ed25519 public key (from StrKey.decodeEd25519PublicKey).
- */
-export function deriveChannelId(agentPubkeyBytes: Buffer, nonce: Buffer): Buffer {
-  const { createHash } = await import('crypto').then((m) => m);
-  // Synchronous version using node:crypto
-  const { createHash: ch } = require('node:crypto') as typeof import('node:crypto');
-  return ch('sha256').update(agentPubkeyBytes).update(nonce).digest();
-}
-
-/**
- * Derives channel_id matching the contract: sha256(agent_pubkey_32 || nonce_32).
  * agentPubkeyBytes: raw 32-byte ed25519 public key (from pubkeyBytes()).
  */
 export function deriveChannelId(agentPubkeyBytes: Buffer, nonce: Buffer): Buffer {
