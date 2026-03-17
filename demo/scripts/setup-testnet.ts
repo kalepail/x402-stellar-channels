@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   console.log('\n.env.testnet written (keep this secret).\n');
   console.log('Next steps:');
   console.log('  pnpm facilitator   # terminal 1');
-  console.log('  pnpm server        # terminal 2');
+  console.log('  pnpm api           # terminal 2');
   console.log('  pnpm benchmark     # terminal 3');
 }
 

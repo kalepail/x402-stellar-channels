@@ -55,7 +55,7 @@ pnpm setup:testnet
 pnpm facilitator
 
 # Terminal 2: API server
-pnpm server
+pnpm api
 
 # Terminal 3: benchmark
 pnpm benchmark

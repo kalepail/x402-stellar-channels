@@ -8,7 +8,7 @@
     "test": "vitest run",
     "test:e2e": "dotenv -e ../.env.testnet -- vitest run test/channel-flow.spec.ts test/vanilla-flow.spec.ts",
     "benchmark": "dotenv -e ../.env.testnet -- tsx src/benchmark/run.ts",
-    "server": "dotenv -e ../.env.testnet -- tsx src/server/index.ts",
+    "api": "dotenv -e ../.env.testnet -- tsx src/server/index.ts",
     "facilitator": "dotenv -e ../.env.testnet -- tsx src/facilitator/server.ts",
     "setup:testnet": "tsx scripts/setup-testnet.ts"
   },
