@@ -41,9 +41,10 @@ pub fn verify_state_sig(
     env.crypto().ed25519_verify(public_key, &msg, sig);
 }
 
-/// Test-only: returns the state message as a Vec<u8> so ed25519-dalek can sign it.
-#[cfg(test)]
+/// Test/testutils-only: returns the state message as a Vec<u8> so ed25519-dalek can sign it.
+#[cfg(any(test, feature = "testutils"))]
 pub mod crypto_test {
+    extern crate std;
     use super::*;
     pub fn state_msg_bytes(
         env: &Env,
@@ -51,7 +52,7 @@ pub mod crypto_test {
         iteration: u64,
         agent_balance: i128,
         server_balance: i128,
-    ) -> Vec<u8> {
+    ) -> std::vec::Vec<u8> {
         state_msg(env, channel_id, iteration, agent_balance, server_balance)
             .iter()
             .collect()

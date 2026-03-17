@@ -33,9 +33,19 @@ pub struct Channel {
     pub agent_balance: i128,
     pub server_balance: i128,
     pub status: ChannelStatus,
-    pub dispute_state: Option<ChannelState>,
     /// Ledger sequence; dispute window closes *after* this ledger (exclusive)
     pub observation_end: Option<u32>,
+}
+
+/// Dispute state stored separately under a derived key to avoid nested
+/// contracttype composition issues.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeState {
+    pub channel_id: BytesN<32>,
+    pub iteration: u64,
+    pub agent_balance: i128,
+    pub server_balance: i128,
 }
 
 /// ~42 min observation window at ~5s/ledger
