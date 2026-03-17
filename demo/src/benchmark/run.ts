@@ -7,7 +7,7 @@ const N = parseInt(process.env.BENCHMARK_CALLS ?? '20', 10);
 
 function printResult(r: BenchmarkResult): void {
   const header = r.mode === 'vanilla'
-    ? `--- Vanilla x402 (exact scheme, ${r.calls} calls) ---`
+    ? `--- Vanilla x402 (on-chain per call, ${r.calls} calls) ---`
     : `--- Channel x402 (${r.calls} calls) ---`;
   console.log(header);
   for (const t of r.results) {

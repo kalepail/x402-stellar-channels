@@ -1,7 +1,6 @@
 import { Keypair } from '@stellar/stellar-sdk';
 import { randomBytes } from 'node:crypto';
 import { signState, verifyState, deriveChannelId, pubkeyBytes } from '../crypto.js';
-import { registerChannel } from '../server/middleware.js';
 import type { ChannelInfo, ChannelPaymentHeader, ChannelPaymentResponse } from '../types.js';
 
 interface ChannelClientOptions {
@@ -55,7 +54,7 @@ export class ChannelClient {
     await fetch(`${this.opts.serverUrl}/channel/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(this.channel),
+      body: JSON.stringify(this.channel, (_, v) => typeof v === 'bigint' ? v.toString() : v),
     });
   }
 

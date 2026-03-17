@@ -21,7 +21,17 @@ app.use(
 );
 
 app.post('/channel/register', (req, res) => {
-  const info = req.body as ChannelInfo;
+  const raw = req.body;
+  const info: ChannelInfo = {
+    ...raw,
+    deposit: BigInt(raw.deposit),
+    currentState: {
+      ...raw.currentState,
+      iteration: BigInt(raw.currentState.iteration),
+      agentBalance: BigInt(raw.currentState.agentBalance),
+      serverBalance: BigInt(raw.currentState.serverBalance),
+    },
+  };
   registerChannel(info);
   res.json({ ok: true });
 });

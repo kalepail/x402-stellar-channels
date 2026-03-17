@@ -88,6 +88,21 @@ export async function openChannelOnChain(
   return invokeContract(agentKeypair, channelContractId, 'open_channel', args);
 }
 
+/** Times a real SAC transfer (agent → server, 1 stroop) — used by the vanilla benchmark
+ *  to measure actual Stellar testnet on-chain latency per call. */
+export async function vanillaPayment(
+  agentKeypair: Keypair,
+  serverPublic: string,
+  assetContractId: string,
+): Promise<string> {
+  const args = [
+    new Address(agentKeypair.publicKey()).toScVal(),
+    new Address(serverPublic).toScVal(),
+    nativeToScVal(1n, { type: 'i128' }),
+  ];
+  return invokeContract(agentKeypair, assetContractId, 'transfer', args);
+}
+
 export async function closeChannelOnChain(
   agentKeypair: Keypair,
   channelContractId: string,
