@@ -68,9 +68,9 @@ async function main(): Promise<void> {
   writeFileSync('../.env.testnet', env + '\n');
   console.log('\n.env.testnet written (keep this secret).\n');
   console.log('Next steps:');
-  console.log('  pnpm run facilitator   # terminal 1');
-  console.log('  pnpm run server        # terminal 2');
-  console.log('  pnpm run benchmark     # terminal 3');
+  console.log('  pnpm facilitator   # terminal 1');
+  console.log('  pnpm server        # terminal 2');
+  console.log('  pnpm benchmark     # terminal 3');
 }
 
 main().catch((err) => {
