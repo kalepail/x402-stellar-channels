@@ -122,6 +122,28 @@ export class ChannelClient {
     return res.json();
   }
 
+  /** Returns the final state info needed for close, without actually closing on-chain. */
+  getFinalState(): {
+    channelId: string;
+    iteration: bigint;
+    agentBalance: bigint;
+    serverBalance: bigint;
+    agentLastSig: Buffer;
+    serverLastSig: Buffer;
+  } {
+    if (!this.channel?.agentLastSig || !this.channel?.serverLastSig) {
+      throw new Error('no paid requests made — nothing to close');
+    }
+    return {
+      channelId: this.channel.channelId,
+      iteration: this.channel.currentState.iteration,
+      agentBalance: this.channel.currentState.agentBalance,
+      serverBalance: this.channel.currentState.serverBalance,
+      agentLastSig: this.channel.agentLastSig,
+      serverLastSig: this.channel.serverLastSig,
+    };
+  }
+
   async close(): Promise<void> {
     if (!this.channel?.agentLastSig || !this.channel?.serverLastSig) {
       throw new Error('no paid requests made — nothing to close');

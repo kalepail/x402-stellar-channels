@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>x402 State Channel Demo</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#09090f;--surface:#111119;--surface2:#17171f;--border:#1f1f2c;
+  --text:#e2e2ea;--dim:#6b6b7b;--accent:#646cff;--accent2:#818cf8;
+  --green:#22c55e;--amber:#f59e0b;--red:#ef4444;
+  --mono:'SF Mono','Fira Code','Cascadia Code',Consolas,monospace;
+  --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+html{background:var(--bg);color:var(--text);font-family:var(--sans)}
+body{min-height:100vh;padding:24px 32px 48px}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.header{max-width:1400px;margin:0 auto 32px;text-align:center}
+.header h1{font-size:28px;font-weight:700;letter-spacing:-0.5px;margin-bottom:8px}
+.header h1 span{color:var(--accent2)}
+.header p{color:var(--dim);font-size:14px;max-width:640px;margin:0 auto 24px;line-height:1.6}
+.header .badges{display:flex;gap:12px;justify-content:center;margin-bottom:24px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;
+  font-size:12px;font-family:var(--mono);background:var(--surface2);border:1px solid var(--border)}
+.badge .dot{width:6px;height:6px;border-radius:50%}
+.badge .dot.green{background:var(--green)}.badge .dot.amber{background:var(--amber)}
+
+/* ── Start Button ───────────────────────────────────────────────── */
+.start-btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:12px 32px;border-radius:8px;border:none;
+  background:var(--accent);color:#fff;font-size:16px;font-weight:600;
+  cursor:pointer;transition:all 0.2s;font-family:var(--sans);
+}
+.start-btn:hover{background:var(--accent2);transform:translateY(-1px)}
+.start-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+.start-btn svg{width:18px;height:18px}
+
+.controls{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap}
+.count-input{
+  width:80px;padding:8px 12px;border-radius:6px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--text);font-size:14px;font-family:var(--mono);
+  text-align:center;
+}
+
+/* ── Race Layout ────────────────────────────────────────────────── */
+.race{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:1400px;margin:0 auto}
+@media(max-width:900px){.race{grid-template-columns:1fr}}
+
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.panel-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 20px;border-bottom:1px solid var(--border);
+}
+.panel-title{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
+.panel-title .icon{font-size:18px}
+.panel-badge{
+  padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;
+  font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;
+}
+.panel-badge.fast{background:rgba(34,197,94,0.15);color:var(--green)}
+.panel-badge.slow{background:rgba(245,158,11,0.15);color:var(--amber)}
+.panel-badge.done{background:rgba(100,108,255,0.15);color:var(--accent2)}
+
+/* ── Stats ──────────────────────────────────────────────────────── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border)}
+.stat{background:var(--surface);padding:12px 16px;text-align:center}
+.stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--dim);margin-bottom:4px}
+.stat-value{font-family:var(--mono);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat-value.green{color:var(--green)}.stat-value.amber{color:var(--amber)}
+
+/* ── Status Bar ─────────────────────────────────────────────────── */
+.status-bar{
+  padding:8px 20px;font-size:12px;color:var(--dim);font-family:var(--mono);
+  border-bottom:1px solid var(--border);min-height:32px;
+  display:flex;align-items:center;gap:8px;
+}
+.status-bar .spinner{
+  width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin 0.6s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Progress ───────────────────────────────────────────────────── */
+.progress-wrap{padding:0 20px;height:4px;background:var(--surface)}
+.progress-bar{height:100%;border-radius:2px;transition:width 0.1s linear;width:0%}
+.progress-bar.green{background:var(--green)}.progress-bar.amber{background:var(--amber)}
+
+/* ── Grid ───────────────────────────────────────────────────────── */
+.grid-wrap{padding:12px;max-height:520px;overflow-y:auto;overflow-x:hidden}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(28px,1fr));
+  gap:2px;
+}
+.cell{
+  aspect-ratio:1;background:var(--surface2);border-radius:2px;
+  overflow:hidden;opacity:0;transition:opacity 0.12s ease-out;
+}
+.cell.loaded{opacity:1}
+.cell img{width:100%;height:100%;display:block;object-fit:cover}
+
+/* ── Summary ────────────────────────────────────────────────────── */
+.summary{
+  max-width:1400px;margin:32px auto 0;padding:24px;
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  display:none;
+}
+.summary.visible{display:block}
+.summary h2{font-size:18px;margin-bottom:16px}
+.summary-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.summary-card{background:var(--surface2);border-radius:8px;padding:16px;text-align:center}
+.summary-card .label{font-size:11px;text-transform:uppercase;color:var(--dim);margin-bottom:6px;letter-spacing:0.5px}
+.summary-card .value{font-family:var(--mono);font-size:22px;font-weight:700}
+.summary-card .value.accent{color:var(--accent2)}
+.summary-card .sub{font-size:11px;color:var(--dim);margin-top:4px}
+@media(max-width:600px){.summary-grid{grid-template-columns:1fr}}
+
+/* ── How It Works ──────────────────────────────────────────────── */
+.how-it-works{max-width:720px;margin:0 auto 24px;text-align:left}
+.how-it-works summary{
+  cursor:pointer;color:var(--accent2);font-size:13px;font-weight:600;
+  text-align:center;padding:6px 0;user-select:none;
+}
+.how-it-works summary:hover{text-decoration:underline}
+.how-content{
+  margin-top:16px;padding:20px;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px;
+}
+.how-section{margin-bottom:18px}
+.how-section:last-child{margin-bottom:0}
+.how-section h3{font-size:14px;font-weight:600;margin-bottom:8px;color:var(--text)}
+.how-section ol{padding-left:20px;font-size:13px;color:var(--dim);line-height:1.7}
+.how-section ol li{margin-bottom:6px}
+.how-section ol li strong{color:var(--text)}
+.how-section p{font-size:13px;color:var(--dim);line-height:1.7}
+.how-section code{
+  font-family:var(--mono);font-size:11px;padding:1px 5px;
+  background:var(--surface2);border-radius:3px;color:var(--accent2);
+}
+.how-section a{color:var(--accent2);text-decoration:none}
+.how-section a:hover{text-decoration:underline}
+
+/* ── Tx Link ───────────────────────────────────────────────────── */
+.tx-link{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:11px;color:var(--accent2);text-decoration:none;
+  font-family:var(--mono);opacity:0.8;
+}
+.tx-link:hover{opacity:1;text-decoration:underline}
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+.footer{max-width:1400px;margin:32px auto 0;text-align:center;color:var(--dim);font-size:12px}
+.footer a{color:var(--accent2);text-decoration:none}
+.footer a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>x402 <span>State Channel</span> Demo</h1>
+  <p>
+    Real USDC purchases of generative art on Stellar testnet.
+    Every image on the left is a paid request to a live Cloudflare Worker &mdash;
+    verified by real ed25519 cryptography, settled by a real Soroban smart contract.
+  </p>
+
+  <details class="how-it-works">
+    <summary>How it works</summary>
+    <div class="how-content">
+      <div class="how-section">
+        <h3>Channel side (left) &mdash; everything is real</h3>
+        <ol>
+          <li><strong>Open channel</strong> &mdash; A real Soroban transaction deposits USDC into an on-chain escrow contract. A fee-bump relayer pays the XLM gas so the agent spends zero XLM. You can verify this tx on <a href="https://stellar.expert/explorer/testnet" target="_blank">stellar.expert</a>.</li>
+          <li><strong>Pre-sign states</strong> &mdash; The agent pre-signs N ed25519 payment states offline (channelId || iteration || balances). Each signature authorizes one more unit of payment to the server. No network calls.</li>
+          <li><strong>Purchase images</strong> &mdash; Each request hits the live NFT service at <code>x402-nft-service.sdf-ecosystem.workers.dev</code> with a signed channel payment header. The Cloudflare Worker verifies the ed25519 signature (~microseconds, no blockchain), generates the art, counter-signs the state, and returns a real PNG. Every image you see was paid for.</li>
+          <li><strong>Close channel</strong> &mdash; A second real Soroban transaction submits the final mutually-signed state. The contract verifies both signatures and distributes the USDC: unused deposit back to the agent, earned amount to the merchant. Again, relayer pays gas.</li>
+        </ol>
+      </div>
+      <div class="how-section">
+        <h3>Traditional side (right) &mdash; real Stellar speed</h3>
+        <p>Standard x402 requires 1 on-chain transaction per API call. Each image waits ~5 seconds for a Stellar ledger close before it can settle. This side runs at that real speed &mdash; you'll see one image every ~5 seconds. For 100 images that's over 8 minutes. The placeholder art is local but the timing is honest.</p>
+      </div>
+      <div class="how-section">
+        <h3>Why channels win</h3>
+        <p>The on-chain cost is fixed at 2 transactions regardless of how many images you buy. The per-image cost is just an ed25519 signature verification &mdash; pure math, no network, no gas. At 100 images, that's a ~50x speedup. At 1,000, it's ~500x.</p>
+      </div>
+    </div>
+  </details>
+
+  <div class="badges">
+    <span class="badge"><span class="dot green"></span> Channel: real USDC &bull; real signatures &bull; real art</span>
+    <span class="badge"><span class="dot amber"></span> Traditional: ~5s per image (real Stellar ledger close time)</span>
+  </div>
+  <div class="controls">
+    <label>
+      <input class="count-input" id="count" type="number" value="100" min="1" max="5000" step="10">
+      images
+    </label>
+    <button class="start-btn" id="startBtn" onclick="startRace()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Start Race
+    </button>
+  </div>
+</div>
+
+<!-- Channel Panel -->
+<div class="race">
+  <div class="panel" id="channelPanel">
+    <div class="panel-header">
+      <span class="panel-title"><span class="icon">&#x26A1;</span> Channel x402 (LIVE)</span>
+      <span class="panel-badge fast" id="channelBadge">2 on-chain txs</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="stat-label">Purchased</div><div class="stat-value green" id="chCount">0</div></div>
+      <div class="stat"><div class="stat-label">Elapsed</div><div class="stat-value green" id="chElapsed">0.0 s</div></div>
+      <div class="stat"><div class="stat-label">Rate</div><div class="stat-value green" id="chRate">&mdash; img/s</div></div>
+      <div class="stat"><div class="stat-label">On-chain Txs</div><div class="stat-value green" id="chTxs">2</div></div>
+    </div>
+    <div class="status-bar" id="chStatus">Waiting&hellip;</div>
+    <div class="progress-wrap"><div class="progress-bar green" id="chProgress"></div></div>
+    <div class="grid-wrap"><div class="grid" id="chGrid"></div></div>
+  </div>
+
+  <!-- Vanilla Panel -->
+  <div class="panel" id="vanillaPanel">
+    <div class="panel-header">
+      <span class="panel-title"><span class="icon">&#x1F422;</span> Traditional x402</span>
+      <span class="panel-badge slow" id="vanillaBadge">1 tx per image</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="stat-label">Purchased</div><div class="stat-value amber" id="vnCount">0</div></div>
+      <div class="stat"><div class="stat-label">Elapsed</div><div class="stat-value amber" id="vnElapsed">0.0 s</div></div>
+      <div class="stat"><div class="stat-label">Rate</div><div class="stat-value amber" id="vnRate">&mdash; img/s</div></div>
+      <div class="stat"><div class="stat-label">On-chain Txs</div><div class="stat-value amber" id="vnTxs">0</div></div>
+    </div>
+    <div class="status-bar" id="vnStatus">Waiting&hellip;</div>
+    <div class="progress-wrap"><div class="progress-bar amber" id="vnProgress"></div></div>
+    <div class="grid-wrap"><div class="grid" id="vnGrid"></div></div>
+  </div>
+</div>
+
+<!-- Summary -->
+<div class="summary" id="summary">
+  <h2>Results</h2>
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">Channel Total</div>
+      <div class="value accent" id="sumChannel">&mdash;</div>
+      <div class="sub">open + sign + purchase + close</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Traditional Total</div>
+      <div class="value" id="sumVanilla">&mdash;</div>
+      <div class="sub">1 on-chain tx per image @ ~5s each</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Speedup</div>
+      <div class="value accent" id="sumSpeedup">&mdash;</div>
+      <div class="sub">channel vs traditional</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <p>
+    <a href="https://github.com/stellar-experimental/ideas/tree/main/x402-zero-latency">x402 State Channels</a>
+    &middot; <a href="https://x402-nft-service.sdf-ecosystem.workers.dev/">NFT Service</a>
+    &middot; <a href="https://www.x402.org/">x402 Protocol</a>
+    &middot; <a href="https://stellar.org">Stellar</a>
+  </p>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────
+let channelES = null;
+let vanillaES = null;
+let channelDone = false;
+let vanillaDone = false;
+let channelTotalMs = 0;
+let vanillaProjectedMs = 0;
+let totalCount = 100;
+
+const STELLAR_CLOSE_MS = 5000;
+
+// ── Grid Setup ───────────────────────────────────────────────────
+function createCells(gridEl, count) {
+  gridEl.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < count; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.dataset.index = i;
+    frag.appendChild(cell);
+  }
+  gridEl.appendChild(frag);
+}
+
+function setImageFromUrl(gridEl, index, url) {
+  const cell = gridEl.children[index];
+  if (!cell) return;
+  const img = document.createElement('img');
+  img.src = url;
+  img.loading = 'lazy';
+  cell.appendChild(img);
+  cell.classList.add('loaded');
+}
+
+function setImageFromSvg(gridEl, index, svgStr) {
+  const cell = gridEl.children[index];
+  if (!cell) return;
+  const img = document.createElement('img');
+  img.src = 'data:image/svg+xml,' + encodeURIComponent(svgStr);
+  cell.appendChild(img);
+  cell.classList.add('loaded');
+}
+
+// ── DOM Refs ─────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const chGrid = $('chGrid'), vnGrid = $('vnGrid');
+
+// ── Format Helpers ───────────────────────────────────────────────
+function fmtTime(ms) {
+  if (ms < 1000) return ms + ' ms';
+  if (ms < 60000) return (ms / 1000).toFixed(1) + ' s';
+  return (ms / 60000).toFixed(1) + ' min';
+}
+
+// ── Start Race ───────────────────────────────────────────────────
+function startRace() {
+  totalCount = Math.min(Math.max(parseInt($('count').value) || 100, 1), 5000);
+  $('count').value = totalCount;
+
+  // Reset state
+  channelDone = false;
+  vanillaDone = false;
+  channelTotalMs = 0;
+  vanillaProjectedMs = totalCount * STELLAR_CLOSE_MS;
+  $('summary').classList.remove('visible');
+
+  // Reset UI
+  $('chCount').textContent = '0';
+  $('chElapsed').textContent = '0.0 s';
+  $('chRate').textContent = '\u2014 img/s';
+  $('chTxs').textContent = '2';
+  $('chProgress').style.width = '0%';
+  $('chStatus').innerHTML = '<span class="spinner"></span> Starting\u2026';
+  $('channelBadge').textContent = '2 on-chain txs';
+  $('channelBadge').className = 'panel-badge fast';
+
+  $('vnCount').textContent = '0';
+  $('vnElapsed').textContent = '0.0 s';
+  $('vnRate').textContent = '\u2014 img/s';
+  $('vnTxs').textContent = '0';
+  $('vnProgress').style.width = '0%';
+  $('vnStatus').innerHTML = '<span class="spinner"></span> Starting\u2026';
+  $('vanillaBadge').textContent = '1 tx per image';
+  $('vanillaBadge').className = 'panel-badge slow';
+
+  createCells(chGrid, totalCount);
+  createCells(vnGrid, totalCount);
+
+  $('startBtn').disabled = true;
+
+  // Close any existing connections cleanly
+  if (channelES) { channelES.close(); channelES = null; }
+  if (vanillaES) { vanillaES.close(); vanillaES = null; }
+
+  // Start both simultaneously
+  startChannel();
+  startVanilla();
+}
+
+// ── Channel SSE ──────────────────────────────────────────────────
+function startChannel() {
+  let imageCount = 0;
+  const imageQueue = [];
+  let rafPending = false;
+  let finished = false; // local flag — immune to reset by startRace
+
+  function closeES() {
+    finished = true;
+    if (channelES) { channelES.close(); channelES = null; }
+  }
+
+  function flushImages() {
+    const batch = imageQueue.splice(0, 40);
+    for (const { index, runId } of batch) {
+      setImageFromUrl(chGrid, index, `/api/images/${runId}/${index}`);
+    }
+    rafPending = false;
+    if (imageQueue.length > 0) {
+      rafPending = true;
+      requestAnimationFrame(flushImages);
+    }
+  }
+
+  channelES = new EventSource(`/api/run/channel?count=${totalCount}`);
+
+  channelES.onmessage = (e) => {
+    if (finished) return;
+    const d = JSON.parse(e.data);
+
+    if (d.type === 'status') {
+      let statusHtml = `<span class="spinner"></span> ${d.message}`;
+      if (d.txHash) {
+        statusHtml += ` <a class="tx-link" href="https://stellar.expert/explorer/testnet/tx/${d.txHash}" target="_blank" rel="noopener">\u2197 ${d.txHash.slice(0, 8)}\u2026</a>`;
+      }
+      $('chStatus').innerHTML = statusHtml;
+    }
+
+    if (d.type === 'image') {
+      imageCount++;
+      imageQueue.push({ index: d.index, runId: d.runId });
+      if (!rafPending) {
+        rafPending = true;
+        requestAnimationFrame(flushImages);
+      }
+      $('chCount').textContent = imageCount;
+      $('chElapsed').textContent = fmtTime(d.elapsed);
+      const rate = d.elapsed > 0 ? (imageCount / (d.elapsed / 1000)).toFixed(1) : '0';
+      $('chRate').textContent = rate + ' img/s';
+      $('chProgress').style.width = ((imageCount / totalCount) * 100).toFixed(1) + '%';
+    }
+
+    if (d.type === 'done') {
+      channelDone = true;
+      channelTotalMs = d.totalMs;
+
+      // Build status with tx links
+      let statusHtml = `Done \u2014 ${d.count} images in ${fmtTime(d.totalMs)} (open: ${fmtTime(d.openMs)}, purchase: ${fmtTime(d.purchaseMs)}, close: ${fmtTime(d.closeMs)})`;
+      if (d.openTxHash) {
+        statusHtml += ` <a class="tx-link" href="https://stellar.expert/explorer/testnet/tx/${d.openTxHash}" target="_blank" rel="noopener">[open tx]</a>`;
+      }
+      if (d.closeTxHash) {
+        statusHtml += ` <a class="tx-link" href="https://stellar.expert/explorer/testnet/tx/${d.closeTxHash}" target="_blank" rel="noopener">[close tx]</a>`;
+      }
+      $('chStatus').innerHTML = statusHtml;
+
+      $('chElapsed').textContent = fmtTime(d.totalMs);
+      $('chRate').textContent = d.rate + ' img/s';
+      $('chProgress').style.width = '100%';
+      $('channelBadge').textContent = 'Complete';
+      $('channelBadge').className = 'panel-badge done';
+      closeES();
+      checkBothDone();
+    }
+
+    if (d.type === 'error') {
+      $('chStatus').textContent = 'Error: ' + d.message;
+      closeES();
+      $('startBtn').disabled = false;
+    }
+  };
+
+  channelES.onerror = () => {
+    if (finished) return; // already handled via done/error/close
+    closeES();
+    $('chStatus').textContent = 'Connection lost';
+    $('startBtn').disabled = false;
+  };
+}
+
+// ── Vanilla SSE ──────────────────────────────────────────────────
+function startVanilla() {
+  let imageCount = 0;
+  let stopped = false;
+
+  function closeES() {
+    stopped = true;
+    if (vanillaES) { vanillaES.close(); vanillaES = null; }
+  }
+
+  vanillaES = new EventSource(`/api/run/vanilla?count=${totalCount}`);
+
+  vanillaES.onmessage = (e) => {
+    if (stopped) return;
+    const d = JSON.parse(e.data);
+
+    if (d.type === 'status') {
+      $('vnStatus').innerHTML = `<span class="spinner"></span> ${d.message}`;
+    }
+
+    if (d.type === 'image') {
+      imageCount++;
+      setImageFromSvg(vnGrid, d.index, d.svg);
+      $('vnCount').textContent = imageCount;
+      $('vnElapsed').textContent = fmtTime(d.elapsed);
+      const rate = d.elapsed > 0 ? (imageCount / (d.elapsed / 1000)).toFixed(2) : '0';
+      $('vnRate').textContent = rate + ' img/s';
+      $('vnTxs').textContent = imageCount;
+      $('vnProgress').style.width = ((imageCount / totalCount) * 100).toFixed(1) + '%';
+
+      // Stop vanilla as soon as channel finishes
+      if (channelDone) {
+        stopVanilla(imageCount);
+      }
+    }
+
+    if (d.type === 'done') {
+      vanillaDone = true;
+      closeES();
+      checkBothDone();
+    }
+  };
+
+  vanillaES.onerror = () => {
+    if (stopped) return;
+    stopVanilla(imageCount);
+  };
+
+  function stopVanilla(count) {
+    if (stopped) return;
+    closeES();
+    vanillaDone = true;
+    const wouldTakeMs = totalCount * STELLAR_CLOSE_MS;
+    $('vnStatus').textContent = `Stopped after ${count}/${totalCount} images \u2014 remaining ${totalCount - count} would take ${fmtTime((totalCount - count) * STELLAR_CLOSE_MS)} more`;
+    $('vnElapsed').textContent = fmtTime(wouldTakeMs) + ' total';
+    $('vanillaBadge').textContent = 'Stopped';
+    $('vanillaBadge').className = 'panel-badge slow';
+    checkBothDone();
+  }
+}
+
+// ── Summary ──────────────────────────────────────────────────────
+function checkBothDone() {
+  if (!channelDone || !vanillaDone) return;
+  $('startBtn').disabled = false;
+
+  vanillaProjectedMs = totalCount * STELLAR_CLOSE_MS;
+  const speedup = vanillaProjectedMs / (channelTotalMs || 1);
+
+  $('sumChannel').textContent = fmtTime(channelTotalMs);
+  $('sumVanilla').textContent = fmtTime(vanillaProjectedMs);
+  $('sumSpeedup').textContent = Math.round(speedup).toLocaleString() + 'x';
+  $('summary').classList.add('visible');
+  $('summary').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+</script>
+</body>
+</html>

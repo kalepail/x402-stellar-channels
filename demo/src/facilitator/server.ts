@@ -43,6 +43,7 @@ app.post('/channel/close', async (req, res) => {
       serverSig: string;
     };
     const txHash = await closeChannelOnChain(
+      facilitatorKeypair,
       agentKeypair,
       channelContractId,
       {
