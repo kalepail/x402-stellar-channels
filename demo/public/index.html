@@ -76,7 +76,10 @@ body{min-height:100vh;padding:24px 32px 48px}
   padding:8px 20px;font-size:12px;color:var(--dim);font-family:var(--mono);
   border-bottom:1px solid var(--border);min-height:32px;
   display:flex;align-items:center;gap:8px;
+  overflow-x:auto;white-space:nowrap;max-width:100%;
 }
+.status-bar.done{white-space:normal;line-height:1.8}
+.status-bar.error{color:var(--red);white-space:normal;word-break:break-word;overflow-y:auto;max-height:120px}
 .status-bar .spinner{
   width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);
   border-radius:50%;animation:spin 0.6s linear infinite;
@@ -175,7 +178,7 @@ body{min-height:100vh;padding:24px 32px 48px}
         <ol>
           <li><strong>Open channel</strong> &mdash; A real Soroban transaction deposits USDC into an on-chain escrow contract. A fee-bump relayer pays the XLM gas so the agent spends zero XLM. You can verify this tx on <a href="https://stellar.expert/explorer/testnet" target="_blank">stellar.expert</a>.</li>
           <li><strong>Pre-sign states</strong> &mdash; The agent pre-signs N ed25519 payment states offline (channelId || iteration || balances). Each signature authorizes one more unit of payment to the server. No network calls.</li>
-          <li><strong>Purchase images</strong> &mdash; Each request hits the live NFT service at <code>x402-nft-service.sdf-ecosystem.workers.dev</code> with a signed channel payment header. The Cloudflare Worker verifies the ed25519 signature (~microseconds, no blockchain), generates the art, counter-signs the state, and returns a real PNG. Every image you see was paid for.</li>
+          <li><strong>Purchase images</strong> &mdash; Each request hits the live NFT service at <code>x402-nft-service.sdf-ecosystem.workers.dev</code> with a signed channel payment header. The Cloudflare Worker verifies the ed25519 signature (~microseconds, no blockchain), generates the art, counter-signs the state, and returns a real SVG. Every image you see was paid for.</li>
           <li><strong>Close channel</strong> &mdash; A second real Soroban transaction submits the final mutually-signed state. The contract verifies both signatures and distributes the USDC: unused deposit back to the agent, earned amount to the merchant. Again, relayer pays gas.</li>
         </ol>
       </div>
@@ -196,7 +199,7 @@ body{min-height:100vh;padding:24px 32px 48px}
   </div>
   <div class="controls">
     <label>
-      <input class="count-input" id="count" type="number" value="100" min="1" max="5000" step="10">
+      <input class="count-input" id="count" type="number" value="100" min="1" max="500" step="10">
       images
     </label>
     <button class="start-btn" id="startBtn" onclick="startRace()">
@@ -330,7 +333,7 @@ function fmtTime(ms) {
 
 // ── Start Race ───────────────────────────────────────────────────
 function startRace() {
-  totalCount = Math.min(Math.max(parseInt($('count').value) || 100, 1), 5000);
+  totalCount = Math.min(Math.max(parseInt($('count').value) || 100, 1), 500);
   $('count').value = totalCount;
 
   // Reset state
@@ -346,6 +349,7 @@ function startRace() {
   $('chRate').textContent = '\u2014 img/s';
   $('chTxs').textContent = '2';
   $('chProgress').style.width = '0%';
+  $('chStatus').className = 'status-bar';
   $('chStatus').innerHTML = '<span class="spinner"></span> Starting\u2026';
   $('channelBadge').textContent = '2 on-chain txs';
   $('channelBadge').className = 'panel-badge fast';
@@ -373,12 +377,34 @@ function startRace() {
   startVanilla();
 }
 
+// ── Stop both sides (called when channel fails irrecoverably) ────
+function stopRace(reason) {
+  if (channelES) { channelES.close(); channelES = null; }
+  if (vanillaES) { vanillaES.close(); vanillaES = null; }
+  channelDone = true;
+  vanillaDone = true;
+  $('startBtn').disabled = false;
+
+  $('chStatus').className = 'status-bar error';
+  $('chStatus').textContent = reason;
+  $('channelBadge').textContent = 'Failed';
+  $('channelBadge').className = 'panel-badge slow';
+
+  $('vnStatus').textContent = 'Stopped \u2014 channel failed';
+  $('vanillaBadge').textContent = 'Stopped';
+  $('vanillaBadge').className = 'panel-badge slow';
+}
+
 // ── Channel SSE ──────────────────────────────────────────────────
+const MAX_CHANNEL_RETRIES = 3;
+
 function startChannel() {
   let imageCount = 0;
   const imageQueue = [];
   let rafPending = false;
-  let finished = false; // local flag — immune to reset by startRace
+  let finished = false;
+  let retries = 0;
+  let gotData = false; // true once we receive any message — reset per attempt
 
   function closeES() {
     finished = true;
@@ -397,70 +423,112 @@ function startChannel() {
     }
   }
 
-  channelES = new EventSource(`/api/run/channel?count=${totalCount}`);
+  function connect() {
+    gotData = false;
+    channelES = new EventSource(`/api/run/channel?count=${totalCount}`);
 
-  channelES.onmessage = (e) => {
-    if (finished) return;
-    const d = JSON.parse(e.data);
+    channelES.onmessage = (e) => {
+      if (finished) return;
+      gotData = true;
+      retries = 0; // got data — reset retry counter
+      const d = JSON.parse(e.data);
 
-    if (d.type === 'status') {
-      let statusHtml = `<span class="spinner"></span> ${d.message}`;
-      if (d.txHash) {
-        statusHtml += ` <a class="tx-link" href="https://stellar.expert/explorer/testnet/tx/${d.txHash}" target="_blank" rel="noopener">\u2197 ${d.txHash.slice(0, 8)}\u2026</a>`;
+      if (d.type === 'status') {
+        let statusHtml = `<span class="spinner"></span> ${d.message}`;
+        if (d.txHash) {
+          statusHtml += ` <a class="tx-link" href="https://stellar.expert/explorer/testnet/tx/${d.txHash}" target="_blank" rel="noopener">\u2197 ${d.txHash.slice(0, 8)}\u2026</a>`;
+        }
+        $('chStatus').innerHTML = statusHtml;
       }
-      $('chStatus').innerHTML = statusHtml;
-    }
 
-    if (d.type === 'image') {
-      imageCount++;
-      imageQueue.push({ index: d.index, runId: d.runId });
-      if (!rafPending) {
-        rafPending = true;
-        requestAnimationFrame(flushImages);
+      if (d.type === 'image') {
+        imageCount++;
+        imageQueue.push({ index: d.index, runId: d.runId });
+        if (!rafPending) {
+          rafPending = true;
+          requestAnimationFrame(flushImages);
+        }
+        $('chCount').textContent = imageCount;
+        $('chElapsed').textContent = fmtTime(d.elapsed);
+        const rate = d.elapsed > 0 ? (imageCount / (d.elapsed / 1000)).toFixed(1) : '0';
+        $('chRate').textContent = rate + ' img/s';
+        $('chProgress').style.width = ((imageCount / totalCount) * 100).toFixed(1) + '%';
       }
-      $('chCount').textContent = imageCount;
-      $('chElapsed').textContent = fmtTime(d.elapsed);
-      const rate = d.elapsed > 0 ? (imageCount / (d.elapsed / 1000)).toFixed(1) : '0';
-      $('chRate').textContent = rate + ' img/s';
-      $('chProgress').style.width = ((imageCount / totalCount) * 100).toFixed(1) + '%';
-    }
 
-    if (d.type === 'done') {
-      channelDone = true;
-      channelTotalMs = d.totalMs;
+      if (d.type === 'done') {
+        channelDone = true;
+        channelTotalMs = d.totalMs;
 
-      // Build status with tx links
-      let statusHtml = `Done \u2014 ${d.count} images in ${fmtTime(d.totalMs)} (open: ${fmtTime(d.openMs)}, purchase: ${fmtTime(d.purchaseMs)}, close: ${fmtTime(d.closeMs)})`;
-      if (d.openTxHash) {
-        statusHtml += ` <a class="tx-link" href="https://stellar.expert/explorer/testnet/tx/${d.openTxHash}" target="_blank" rel="noopener">[open tx]</a>`;
+        const skipNote = d.skipped ? `, ${d.skipped} skipped` : '';
+        let statusHtml = `Done \u2014 ${d.count} images in ${fmtTime(d.totalMs)} (open: ${fmtTime(d.openMs)}, purchase: ${fmtTime(d.purchaseMs)}, close: ${fmtTime(d.closeMs)}${skipNote})`;
+        if (d.openTxHash || d.closeTxHash) {
+          statusHtml += '<br>';
+          if (d.openTxHash) {
+            statusHtml += `<a class="tx-link" href="https://stellar.expert/explorer/testnet/tx/${d.openTxHash}" target="_blank" rel="noopener">\u2197 open tx: ${d.openTxHash.slice(0, 16)}\u2026</a>  `;
+          }
+          if (d.closeTxHash) {
+            statusHtml += `<a class="tx-link" href="https://stellar.expert/explorer/testnet/tx/${d.closeTxHash}" target="_blank" rel="noopener">\u2197 close tx: ${d.closeTxHash.slice(0, 16)}\u2026</a>`;
+          }
+        }
+        $('chStatus').className = 'status-bar done';
+        $('chStatus').innerHTML = statusHtml;
+
+        $('chElapsed').textContent = fmtTime(d.totalMs);
+        $('chRate').textContent = d.rate + ' img/s';
+        $('chProgress').style.width = '100%';
+        $('channelBadge').textContent = 'Complete';
+        $('channelBadge').className = 'panel-badge done';
+        closeES();
+        checkBothDone();
       }
-      if (d.closeTxHash) {
-        statusHtml += ` <a class="tx-link" href="https://stellar.expert/explorer/testnet/tx/${d.closeTxHash}" target="_blank" rel="noopener">[close tx]</a>`;
-      }
-      $('chStatus').innerHTML = statusHtml;
 
-      $('chElapsed').textContent = fmtTime(d.totalMs);
-      $('chRate').textContent = d.rate + ' img/s';
-      $('chProgress').style.width = '100%';
-      $('channelBadge').textContent = 'Complete';
-      $('channelBadge').className = 'panel-badge done';
+      if (d.type === 'skip') {
+        $('chStatus').innerHTML = `<span class="spinner"></span> Purchasing\u2026 (${d.skipped} skipped)`;
+      }
+
+      if (d.type === 'error') {
+        if (channelES) { channelES.close(); channelES = null; }
+        if (d.fatal) {
+          // Unrecoverable — stop everything
+          closeES();
+          stopRace(d.message);
+        } else {
+          attemptRetry('Channel error: ' + d.message);
+        }
+      }
+    };
+
+    channelES.onerror = () => {
+      if (finished) return;
+      if (channelES) { channelES.close(); channelES = null; }
+      attemptRetry('Channel connection lost');
+    };
+  }
+
+  function attemptRetry(reason) {
+    retries++;
+    if (retries > MAX_CHANNEL_RETRIES) {
       closeES();
-      checkBothDone();
+      stopRace(reason + ` (${MAX_CHANNEL_RETRIES} retries exhausted)`);
+      return;
     }
+    const delay = retries * 2000;
+    $('chStatus').innerHTML = `<span class="spinner"></span> ${reason} \u2014 retrying in ${delay / 1000}s (attempt ${retries}/${MAX_CHANNEL_RETRIES})\u2026`;
+    // Reset image state for the new run
+    imageCount = 0;
+    imageQueue.length = 0;
+    createCells(chGrid, totalCount);
+    $('chCount').textContent = '0';
+    $('chElapsed').textContent = '0.0 s';
+    $('chRate').textContent = '\u2014 img/s';
+    $('chProgress').style.width = '0%';
+    setTimeout(() => {
+      if (finished) return;
+      connect();
+    }, delay);
+  }
 
-    if (d.type === 'error') {
-      $('chStatus').textContent = 'Error: ' + d.message;
-      closeES();
-      $('startBtn').disabled = false;
-    }
-  };
-
-  channelES.onerror = () => {
-    if (finished) return; // already handled via done/error/close
-    closeES();
-    $('chStatus').textContent = 'Connection lost';
-    $('startBtn').disabled = false;
-  };
+  connect();
 }
 
 // ── Vanilla SSE ──────────────────────────────────────────────────

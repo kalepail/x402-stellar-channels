@@ -2,83 +2,71 @@
 
 A proof-of-concept unidirectional payment channel for [x402](https://www.x402.org/) on Stellar, using Soroban smart contracts. Reduces per-request payment overhead from ~5s to <10ms after channel open.
 
----
-
 ## The Problem
 
-x402 requires an on-chain transaction per API call. For an AI agent making 20 calls to a paid API, that's ~100 seconds of payment latency — before the actual work even begins.
+x402 requires an on-chain transaction per API call. For an AI agent making 100 calls to a paid API, that's over 8 minutes of payment latency — before the actual work even begins.
 
 ## The Solution
 
 Open a channel once (1 on-chain tx), pay per request with a local ed25519 signature (no chain), close once (1 on-chain tx). N calls = 2 transactions total.
 
 ```
-SETUP (once, ~7s):      Agent → Facilitator → Stellar: open_channel(deposit=1 USDC)
-EACH REQUEST (~10ms):   Agent → Server: GET /data + X-Payment: {signed state}
-                        Server verifies signature locally → 200 OK
-TEARDOWN (once, ~5s):   Agent → Facilitator → Stellar: close_channel(finalState)
+SETUP (once, ~7s):      Agent → Relayer → Stellar: open_channel(deposit)
+EACH REQUEST (~ms):     Agent → Server: GET /resource + payment-signature: {signed state}
+                        Server verifies ed25519 locally → 200 OK + counter-signature
+TEARDOWN (once, ~5s):   Relayer → Stellar: close_channel(final mutual state)
 ```
 
-## Benchmark
+## Live Demo
 
-| Mode | 20 calls total | Per-call avg |
-|------|----------------|--------------|
-| Vanilla x402 | ~102s | ~5,100ms |
-| Channel x402 | ~12s (incl. open+close) | ~10ms |
-| **Speedup** | **8.8x** | **509x** |
+The demo is a Cloudflare Worker that races a real channel payment flow against simulated traditional x402:
 
-Break-even: **3 calls** (channels win from the 3rd call onward).
+- **Channel side** — Opens a real USDC channel on Stellar testnet, purchases generative art from a live NFT service with signed channel payments, closes the channel. Everything is real: real USDC, real ed25519 signatures, real Soroban contract.
+- **Traditional side** — Simulates 1 on-chain tx per image at real Stellar ledger close speed (~5s each).
 
----
-
-## Prerequisites
-
-- [Rust](https://rustup.rs/) + `wasm32-unknown-unknown` target:
-  ```bash
-  rustup target add wasm32-unknown-unknown
-  ```
-- [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools/cli/install):
-  ```bash
-  cargo install stellar-cli --features opt
-  ```
-- Node.js 22+ and [pnpm](https://pnpm.io/installation)
-
-## Quick Start
+### Run locally
 
 ```bash
-# Install TypeScript deps and deploy to testnet (creates .env.testnet)
 cd demo
 pnpm install
-pnpm setup:testnet
+pnpm setup:testnet    # one-time: creates keypairs, deploys contract, writes .env.testnet
+pnpm dev              # starts wrangler dev server at localhost:8787
+```
 
-# Terminal 1: facilitator
-pnpm facilitator
+### Deploy
 
-# Terminal 2: API server
-pnpm api
+```bash
+# Set secrets (from .env.testnet values)
+wrangler secret put AGENT_SECRET
+wrangler secret put FACILITATOR_SECRET
+wrangler secret put CHANNEL_SERVER_PUBLIC
+wrangler secret put NFT_SERVICE_PAY_TO
+wrangler secret put USDC_CONTRACT_ID
+wrangler secret put CHANNEL_CONTRACT_ID
 
-# Terminal 3: benchmark
-pnpm benchmark
+pnpm deploy
 ```
 
 ## How It Works
 
 ### Off-chain State
 
-Each API request includes a signed 72-byte state in the `X-Payment` header:
+Each API request includes a signed 72-byte state in the `payment-signature` header:
 
 ```json
 {
   "scheme": "channel",
   "channelId": "abc...",
-  "iteration": 42,
+  "iteration": "42",
   "agentBalance": "9580000",
   "serverBalance": "420000",
+  "deposit": "10000000",
+  "agentPublicKey": "G...",
   "agentSig": "a3f1..."
 }
 ```
 
-The server verifies the ed25519 signature locally (microseconds, no network) and responds with its counter-signature. Both parties accumulate the latest mutual state, which can be submitted on-chain at any time.
+The server verifies the ed25519 signature locally (microseconds, no network) and responds with its counter-signature. The highest mutually-signed state can be submitted on-chain at any time.
 
 ### Soroban Contract
 
@@ -88,10 +76,14 @@ The contract manages channel lifecycle and dispute resolution:
 |---|---|
 | `open_channel` | Agent deposits USDC into escrow; 1 on-chain tx |
 | `close_channel` | Both parties sign final state; immediate settlement |
-| `initiate_dispute` | Either party submits their last-known state; 42min window starts |
+| `initiate_dispute` | Either party submits their last-known state; ~42min observation window starts |
 | `resolve_dispute` | Counter-party presents higher-iteration mutual state; window resets |
 | `finalize_dispute` | After window expires, highest-iteration state wins |
 | `keep_alive` | Extends Soroban storage TTL for long-running channels |
+
+### Fee-Bump Relaying
+
+The demo uses a fee-bump relayer so the agent never spends XLM on transaction fees. The agent signs the inner transaction (authorizing the contract call), and the relayer wraps it in a fee-bump transaction that covers all XLM costs.
 
 ### Backwards Compatibility
 
@@ -100,9 +92,33 @@ The `channel` scheme is additive — servers advertise both `exact` (vanilla x40
 ## Security Notes
 
 - Agent exposure is bounded by deposit amount
-- Server holds latest counter-signed state; can initiate dispute if agent vanishes
+- Server holds latest counter-signed state; can close immediately since commitments are monotonically increasing
 - Observation window (~42 min) protects against old-state submission attacks
-- On-chain settlement reveals total payment flow (not privacy-preserving)
+- Either party can initiate dispute; counter-party can resolve with a higher-iteration state
+
+## Project Structure
+
+```
+contract/           Soroban smart contract (Rust)
+  src/
+    lib.rs          Contract entry points
+    channel.rs      Open, close, keep_alive, payout
+    dispute.rs      Initiate, resolve, finalize dispute
+    crypto.rs       State message construction + ed25519 verification
+    types.rs        Channel, ChannelState, DisputeState types
+
+demo/               Cloudflare Worker demo
+  src/
+    worker.ts       Hono SSE API (channel + vanilla race)
+    crypto.ts       Ed25519 signing/verification (matches contract)
+    facilitator/
+      stellar.ts    Soroban SDK: open/close channel with fee-bump relay
+    types.ts        ChannelState type
+  public/
+    index.html      Race visualization frontend
+  scripts/
+    setup-testnet.ts  One-time testnet setup
+```
 
 ## References
 

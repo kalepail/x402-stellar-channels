@@ -1,5 +1,13 @@
 import { execSync } from 'child_process';
-import { Keypair, Networks, TransactionBuilder, Horizon, Operation, Asset, BASE_FEE } from '@stellar/stellar-sdk';
+import {
+  Keypair,
+  Networks,
+  TransactionBuilder,
+  Horizon,
+  Operation,
+  Asset,
+  BASE_FEE,
+} from '@stellar/stellar-sdk';
 import { writeFileSync } from 'fs';
 import { deployContract } from './deploy-contract.js';
 
@@ -57,7 +65,9 @@ async function acquireUsdc(keypair: Keypair, horizon: Horizon.Server): Promise<b
           destMin: '0.0000001',
           path: bestPath.path.map(
             (p: { asset_type: string; asset_code?: string; asset_issuer?: string }) =>
-              p.asset_type === 'native' ? Asset.native() : new Asset(p.asset_code!, p.asset_issuer!),
+              p.asset_type === 'native'
+                ? Asset.native()
+                : new Asset(p.asset_code!, p.asset_issuer!),
           ),
         }),
       )
@@ -95,7 +105,10 @@ async function main(): Promise<void> {
 
   // 2. Fund via Friendbot
   console.log('\nFunding via Friendbot...');
-  await Promise.all([fundViaFriendbot(agent.publicKey()), fundViaFriendbot(facilitator.publicKey())]);
+  await Promise.all([
+    fundViaFriendbot(agent.publicKey()),
+    fundViaFriendbot(facilitator.publicKey()),
+  ]);
   console.log('  Agent + Facilitator funded (10,000 XLM each).');
 
   // 3. Add USDC trustline for agent (needs to hold USDC for channel deposits)
@@ -151,7 +164,9 @@ async function main(): Promise<void> {
   console.log('=== Next Steps ===\n');
   console.log('1. Deploy the NFT service with channel support:');
   console.log(`   cd /path/to/x402-nft-service`);
-  console.log(`   echo "${channelServer.secret()}" | npx wrangler secret put CHANNEL_SERVER_SECRET`);
+  console.log(
+    `   echo "${channelServer.secret()}" | npx wrangler secret put CHANNEL_SERVER_SECRET`,
+  );
   console.log(`   npx wrangler deploy\n`);
   console.log('2. Run the web demo:');
   console.log('   pnpm web-demo\n');

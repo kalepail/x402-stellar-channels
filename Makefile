@@ -1,4 +1,4 @@
-.PHONY: all build test lint fmt typecheck coverage check ci
+.PHONY: all build test lint fmt typecheck check ci
 
 all: check
 
@@ -43,11 +43,6 @@ fmt-demo:
 
 typecheck:
 	cd demo && pnpm typecheck
-
-# ── Coverage ──────────────────────────────────────────────────────────────────
-
-coverage:
-	cd demo && pnpm coverage
 
 # ── All checks (mirrors CI) ───────────────────────────────────────────────────
 

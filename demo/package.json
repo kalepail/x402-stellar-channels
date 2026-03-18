@@ -3,36 +3,30 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.28.0",
   "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "test": "vitest run",
-    "test:e2e": "dotenv -e ../.env.testnet -- vitest run test/channel-flow.spec.ts test/vanilla-flow.spec.ts",
-    "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src test scripts",
     "lint:fix": "eslint src test scripts --fix",
     "fmt": "prettier --write 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.ts'",
     "fmt:check": "prettier --check 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.ts'",
-    "benchmark": "dotenv -e ../.env.testnet -- tsx src/benchmark/run.ts",
-    "api": "dotenv -e ../.env.testnet -- tsx src/server/index.ts",
-    "facilitator": "dotenv -e ../.env.testnet -- tsx src/facilitator/server.ts",
-    "setup:testnet": "tsx scripts/setup-testnet.ts",
-    "web-demo": "dotenv -e ../.env.testnet -- tsx src/web-demo.ts"
+    "setup:testnet": "tsx scripts/setup-testnet.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.1",
-    "express": "^4.18.0"
+    "hono": "^4.12.8"
   },
   "devDependencies": {
-    "@types/express": "^4.17.0",
     "@types/node": "^22.0.0",
-    "@vitest/coverage-v8": "^4.1.0",
-    "dotenv-cli": "^7.0.0",
     "eslint": "^10.0.3",
     "prettier": "^3.8.1",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.57.1",
-    "vitest": "^2.0.0"
+    "vitest": "^2.0.0",
+    "wrangler": "^4.75.0"
   }
 }

@@ -1,4 +1,12 @@
-import { Keypair, Horizon, TransactionBuilder, Operation, Asset, BASE_FEE, Networks } from '@stellar/stellar-sdk';
+import {
+  Keypair,
+  Horizon,
+  TransactionBuilder,
+  Operation,
+  Asset,
+  BASE_FEE,
+  Networks,
+} from '@stellar/stellar-sdk';
 
 const horizon = new Horizon.Server('https://horizon-testnet.stellar.org');
 const agent = Keypair.fromSecret(process.env.AGENT_SECRET!);
@@ -21,7 +29,10 @@ async function main() {
   console.log(`\nDEX path: 2000 XLM -> ${paths.records[0].destination_amount} USDC`);
 
   const freshAcct = await horizon.loadAccount(agent.publicKey());
-  const tx = new TransactionBuilder(freshAcct, { fee: BASE_FEE, networkPassphrase: Networks.TESTNET })
+  const tx = new TransactionBuilder(freshAcct, {
+    fee: BASE_FEE,
+    networkPassphrase: Networks.TESTNET,
+  })
     .addOperation(
       Operation.pathPaymentStrictSend({
         sendAsset: Asset.native(),

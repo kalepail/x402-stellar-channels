@@ -12,54 +12,27 @@ import {
 } from '@stellar/stellar-sdk';
 import type { ChannelState } from '../types.js';
 
-const RPC_URL = process.env.RPC_URL ?? 'https://soroban-testnet.stellar.org';
-const NETWORK_PASSPHRASE = process.env.NETWORK === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-const server = new StellarRpc.Server(RPC_URL);
+/** Mutable config — call configureStellar() in Workers before first use. */
+const stellar = {
+  rpcUrl:
+    (typeof process !== 'undefined' ? process.env?.RPC_URL : undefined) ??
+    'https://soroban-testnet.stellar.org',
+  networkPassphrase:
+    typeof process !== 'undefined' && process.env?.NETWORK === 'mainnet'
+      ? Networks.PUBLIC
+      : Networks.TESTNET,
+  server: null as unknown as StellarRpc.Server,
+};
+stellar.server = new StellarRpc.Server(stellar.rpcUrl);
 
-export { server, NETWORK_PASSPHRASE };
-
-async function invokeContract(
-  sourceKeypair: Keypair,
-  contractId: string,
-  method: string,
-  args: xdr.ScVal[],
-): Promise<string> {
-  const account = await server.getAccount(sourceKeypair.publicKey());
-  const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      Operation.invokeContractFunction({
-        contract: contractId,
-        function: method,
-        args,
-      }),
-    )
-    .setTimeout(30)
-    .build();
-
-  const sim = await server.simulateTransaction(tx);
-  if (StellarRpc.Api.isSimulationError(sim)) {
-    throw new Error(`simulation failed: ${sim.error}`);
-  }
-
-  const assembled = StellarRpc.assembleTransaction(tx, sim).build();
-  assembled.sign(sourceKeypair);
-
-  const result = await server.sendTransaction(assembled);
-  if (result.status === 'ERROR') throw new Error(`submit error: ${JSON.stringify(result)}`);
-
-  let response = await server.getTransaction(result.hash);
-  while (response.status === StellarRpc.Api.GetTransactionStatus.NOT_FOUND) {
-    await new Promise((r) => setTimeout(r, 1500));
-    response = await server.getTransaction(result.hash);
-  }
-  if (response.status === StellarRpc.Api.GetTransactionStatus.FAILED) {
-    throw new Error(`tx failed: ${JSON.stringify(response)}`);
-  }
-  return result.hash;
+/** Configure RPC connection (call once at startup in Workers where process.env isn't available). */
+export function configureStellar(rpcUrl: string, network: string): void {
+  stellar.rpcUrl = rpcUrl;
+  stellar.networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+  stellar.server = new StellarRpc.Server(rpcUrl);
 }
+
+export { stellar };
 
 /**
  * Invoke a contract with fee-bump relaying.
@@ -76,10 +49,10 @@ async function invokeContractRelayed(
   args: xdr.ScVal[],
 ): Promise<string> {
   // Build inner tx with agent as source (needed for require_auth + sequence)
-  const account = await server.getAccount(agentKeypair.publicKey());
+  const account = await stellar.server.getAccount(agentKeypair.publicKey());
   const innerTx = new TransactionBuilder(account, {
     fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: stellar.networkPassphrase,
   })
     .addOperation(
       Operation.invokeContractFunction({
@@ -92,7 +65,7 @@ async function invokeContractRelayed(
     .build();
 
   // Simulate to get resource estimates + auth entries
-  const sim = await server.simulateTransaction(innerTx);
+  const sim = await stellar.server.simulateTransaction(innerTx);
   if (StellarRpc.Api.isSimulationError(sim)) {
     throw new Error(`simulation failed: ${sim.error}`);
   }
@@ -106,18 +79,18 @@ async function invokeContractRelayed(
     relayerKeypair,
     String(Number(assembled.fee) * 2 + 100000),
     assembled,
-    NETWORK_PASSPHRASE,
+    stellar.networkPassphrase,
   );
   feeBump.sign(relayerKeypair);
 
   // Submit the fee-bumped transaction
-  const result = await server.sendTransaction(feeBump);
+  const result = await stellar.server.sendTransaction(feeBump);
   if (result.status === 'ERROR') throw new Error(`submit error: ${JSON.stringify(result)}`);
 
-  let response = await server.getTransaction(result.hash);
+  let response = await stellar.server.getTransaction(result.hash);
   while (response.status === StellarRpc.Api.GetTransactionStatus.NOT_FOUND) {
     await new Promise((r) => setTimeout(r, 1500));
-    response = await server.getTransaction(result.hash);
+    response = await stellar.server.getTransaction(result.hash);
   }
   if (response.status === StellarRpc.Api.GetTransactionStatus.FAILED) {
     throw new Error(`tx failed: ${JSON.stringify(response)}`);
@@ -162,22 +135,13 @@ export async function openChannelOnChain(
     xdr.ScVal.scvBytes(nonce),
   ];
 
-  return invokeContractRelayed(facilitatorKeypair, agentKeypair, channelContractId, 'open_channel', args);
-}
-
-/** Times a real SAC transfer (agent → server, 1 stroop) — used by the vanilla benchmark
- *  to measure actual Stellar testnet on-chain latency per call. */
-export async function vanillaPayment(
-  agentKeypair: Keypair,
-  serverPublic: string,
-  assetContractId: string,
-): Promise<string> {
-  const args = [
-    new Address(agentKeypair.publicKey()).toScVal(),
-    new Address(serverPublic).toScVal(),
-    nativeToScVal(1n, { type: 'i128' }),
-  ];
-  return invokeContract(agentKeypair, assetContractId, 'transfer', args);
+  return invokeContractRelayed(
+    facilitatorKeypair,
+    agentKeypair,
+    channelContractId,
+    'open_channel',
+    args,
+  );
 }
 
 /**
@@ -220,5 +184,11 @@ export async function closeChannelOnChain(
     xdr.ScVal.scvBytes(agentSig),
     xdr.ScVal.scvBytes(serverSig),
   ];
-  return invokeContractRelayed(facilitatorKeypair, agentKeypair, channelContractId, 'close_channel', args);
+  return invokeContractRelayed(
+    facilitatorKeypair,
+    agentKeypair,
+    channelContractId,
+    'close_channel',
+    args,
+  );
 }
