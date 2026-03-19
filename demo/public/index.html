@@ -178,24 +178,24 @@ body{min-height:100vh;padding:24px 32px 48px}
         <ol>
           <li><strong>Open channel</strong> &mdash; A real Soroban transaction deposits USDC into an on-chain escrow contract. A fee-bump relayer pays the XLM gas so the agent spends zero XLM. You can verify this tx on <a href="https://stellar.expert/explorer/testnet" target="_blank">stellar.expert</a>.</li>
           <li><strong>Pre-sign states</strong> &mdash; The agent pre-signs N ed25519 payment states offline (channelId || iteration || balances). Each signature authorizes one more unit of payment to the server. No network calls.</li>
-          <li><strong>Purchase images</strong> &mdash; Each request hits the live NFT service at <code>x402-nft-service.sdf-ecosystem.workers.dev</code> with a signed channel payment header. The Cloudflare Worker verifies the ed25519 signature (~microseconds, no blockchain), generates the art, counter-signs the state, and returns a real SVG. Every image you see was paid for.</li>
+          <li><strong>Purchase images</strong> &mdash; Each request hits the live NFT service at <code>x402-nft.stellar.buzz</code> with a signed channel payment header. The Cloudflare Worker verifies the ed25519 signature (sub-millisecond, no blockchain), generates the art, counter-signs the state, and returns a real SVG. Every image you see was paid for.</li>
           <li><strong>Close channel</strong> &mdash; A second real Soroban transaction submits the final mutually-signed state. The contract verifies both signatures and distributes the USDC: unused deposit back to the agent, earned amount to the merchant. Again, relayer pays gas.</li>
         </ol>
       </div>
       <div class="how-section">
-        <h3>Traditional side (right) &mdash; real Stellar speed</h3>
-        <p>Standard x402 requires 1 on-chain transaction per API call. Each image waits ~5 seconds for a Stellar ledger close before it can settle. This side runs at that real speed &mdash; you'll see one image every ~5 seconds. For 100 images that's over 8 minutes. The placeholder art is local but the timing is honest.</p>
+        <h3>Traditional side (right) &mdash; simulated Stellar timing</h3>
+        <p>Standard x402 requires 1 on-chain transaction per API call. Each payment waits ~5 seconds for a Stellar ledger close before it settles. This side simulates that cadence &mdash; one image every ~5 seconds with locally-generated placeholder art. No actual transactions are submitted, but the timing reflects real Stellar throughput. For 100 images that's over 8 minutes of waiting.</p>
       </div>
       <div class="how-section">
         <h3>Why channels win</h3>
-        <p>The on-chain cost is fixed at 2 transactions regardless of how many images you buy. The per-image cost is just an ed25519 signature verification &mdash; pure math, no network, no gas. At 100 images, that's a ~50x speedup. At 1,000, it's ~500x.</p>
+        <p>The on-chain cost is fixed at 2 transactions regardless of how many images you buy. The per-image payment cost is just an ed25519 signature verification &mdash; pure math, no network, no gas. The more images you buy, the greater the advantage: the 2 on-chain transactions are amortized across all purchases while traditional x402 pays the ~5s ledger-close cost every time.</p>
       </div>
     </div>
   </details>
 
   <div class="badges">
     <span class="badge"><span class="dot green"></span> Channel: real USDC &bull; real signatures &bull; real art</span>
-    <span class="badge"><span class="dot amber"></span> Traditional: ~5s per image (real Stellar ledger close time)</span>
+    <span class="badge"><span class="dot amber"></span> Traditional: ~5s per image (simulated ledger close timing)</span>
   </div>
   <div class="controls">
     <label>
@@ -255,9 +255,9 @@ body{min-height:100vh;padding:24px 32px 48px}
       <div class="sub">open + sign + purchase + close</div>
     </div>
     <div class="summary-card">
-      <div class="label">Traditional Total</div>
+      <div class="label">Traditional Total (projected)</div>
       <div class="value" id="sumVanilla">&mdash;</div>
-      <div class="sub">1 on-chain tx per image @ ~5s each</div>
+      <div class="sub">simulated: 1 tx per image @ ~5s each</div>
     </div>
     <div class="summary-card">
       <div class="label">Speedup</div>
@@ -270,7 +270,7 @@ body{min-height:100vh;padding:24px 32px 48px}
 <div class="footer">
   <p>
     <a href="https://github.com/stellar-experimental/ideas/tree/main/x402-zero-latency">x402 State Channels</a>
-    &middot; <a href="https://x402-nft-service.sdf-ecosystem.workers.dev/">NFT Service</a>
+    &middot; <a href="https://x402-nft.stellar.buzz/">NFT Service</a>
     &middot; <a href="https://www.x402.org/">x402 Protocol</a>
     &middot; <a href="https://stellar.org">Stellar</a>
   </p>
@@ -299,16 +299,6 @@ function createCells(gridEl, count) {
     frag.appendChild(cell);
   }
   gridEl.appendChild(frag);
-}
-
-function setImageFromUrl(gridEl, index, url) {
-  const cell = gridEl.children[index];
-  if (!cell) return;
-  const img = document.createElement('img');
-  img.src = url;
-  img.loading = 'lazy';
-  cell.appendChild(img);
-  cell.classList.add('loaded');
 }
 
 function setImageFromSvg(gridEl, index, svgStr) {
@@ -413,8 +403,8 @@ function startChannel() {
 
   function flushImages() {
     const batch = imageQueue.splice(0, 40);
-    for (const { index, runId } of batch) {
-      setImageFromUrl(chGrid, index, `/api/images/${runId}/${index}`);
+    for (const { index, svg } of batch) {
+      setImageFromSvg(chGrid, index, svg);
     }
     rafPending = false;
     if (imageQueue.length > 0) {
@@ -443,7 +433,7 @@ function startChannel() {
 
       if (d.type === 'image') {
         imageCount++;
-        imageQueue.push({ index: d.index, runId: d.runId });
+        imageQueue.push({ index: d.index, svg: d.svg });
         if (!rafPending) {
           rafPending = true;
           requestAnimationFrame(flushImages);

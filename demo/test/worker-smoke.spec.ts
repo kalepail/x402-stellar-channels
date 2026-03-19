@@ -33,11 +33,6 @@ async function parseSSE(resp: Response): Promise<Array<Record<string, unknown>>>
 }
 
 describe('Worker routes', () => {
-  it('GET /api/images/:runId/:index returns 404 for missing image', async () => {
-    const resp = await app.request('/api/images/nonexistent/0', {}, mockEnv);
-    expect(resp.status).toBe(404);
-  });
-
   it('GET /api/run/vanilla returns SSE with correct content-type', async () => {
     const resp = await app.request('/api/run/vanilla?count=1', {}, mockEnv);
     expect(resp.status).toBe(200);

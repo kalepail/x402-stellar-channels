@@ -27,25 +27,6 @@ const STELLAR_CLOSE_TIME_MS = 5_000;
 const CONCURRENCY = 6;
 const STYLE = 'attractor';
 
-// ── Image cache (in-memory, bounded, resets on redeploy) ─────────────────────
-const svgCache = new Map<string, string>();
-const SVG_CACHE_MAX = 1000;
-
-function cacheSet(key: string, value: string) {
-  if (svgCache.size >= SVG_CACHE_MAX) svgCache.delete(svgCache.keys().next().value!);
-  svgCache.set(key, value);
-}
-
-app.get('/api/images/:runId/:index', (c) => {
-  const key = `${c.req.param('runId')}/${c.req.param('index')}`;
-  const svg = svgCache.get(key);
-  if (!svg) return c.notFound();
-  return c.body(svg, 200, {
-    'Content-Type': 'image/svg+xml',
-    'Cache-Control': 'public, max-age=3600',
-  });
-});
-
 // ── Channel run (REAL testnet purchases) ─────────────────────────────────────
 app.get('/api/run/channel', (c) => {
   const env = c.env;
@@ -63,7 +44,6 @@ app.get('/api/run/channel', (c) => {
 
   const count = Math.min(parseInt(c.req.query('count') || '100'), 500);
   const deposit = PRICE * BigInt(count + 10);
-  const runId = Date.now().toString(36);
 
   return streamSSE(c, async (stream) => {
     let aborted = false;
@@ -193,7 +173,6 @@ app.get('/api/run/channel', (c) => {
             });
 
             const svg = await resp.text();
-            cacheSet(`${runId}/${idx}`, svg);
 
             const respHeader = resp.headers.get('x-payment-response');
             if (respHeader) {
@@ -210,7 +189,7 @@ app.get('/api/run/channel', (c) => {
               serverSigs.set(idx, serverSig);
             }
 
-            return { idx, size: svg.length };
+            return { idx, size: svg.length, svg };
           }),
         );
 
@@ -223,7 +202,7 @@ app.get('/api/run/channel', (c) => {
             await send({
               type: 'image',
               index: result.value.idx,
-              runId,
+              svg: result.value.svg,
               size: result.value.size,
               elapsed,
               iteration: completed,
@@ -324,7 +303,7 @@ app.get('/api/run/vanilla', (c) => {
     await send({
       type: 'status',
       phase: 'purchasing',
-      message: `Traditional x402 — 1 on-chain tx per image (~${STELLAR_CLOSE_TIME_MS / 1000}s each, real Stellar ledger close time)…`,
+      message: `Traditional x402 — simulating 1 on-chain tx per image (~${STELLAR_CLOSE_TIME_MS / 1000}s each, Stellar ledger close cadence)…`,
     });
 
     const startTime = performance.now();
