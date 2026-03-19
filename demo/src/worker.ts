@@ -50,7 +50,10 @@ app.get('/api/images/:runId/:index', (c) => {
 // ── Channel run (REAL testnet purchases) ─────────────────────────────────────
 app.get('/api/run/channel', (c) => {
   const env = c.env;
-  configureStellar(env.RPC_URL || 'https://soroban-testnet.stellar.org', env.NETWORK || 'testnet');
+  configureStellar(
+    env.RPC_URL || 'https://soroban-rpc.testnet.stellar.gateway.fm',
+    env.NETWORK || 'testnet',
+  );
   const nftServiceUrl = env.NFT_SERVICE_URL || 'https://x402-nft-service.sdf-ecosystem.workers.dev';
   const agentKeypair = Keypair.fromSecret(env.AGENT_SECRET);
   const facilitatorKeypair = Keypair.fromSecret(env.FACILITATOR_SECRET);

@@ -1,4 +1,13 @@
+/**
+ * Soroban contract invocation via raw fetch() RPC calls.
+ *
+ * The Stellar SDK's rpc.Server uses axios internally, which doesn't work
+ * in Cloudflare Workers. This module uses the SDK only for XDR/crypto
+ * and makes RPC calls via native fetch().
+ */
+
 import {
+  Account,
   Keypair,
   Networks,
   TransactionBuilder,
@@ -12,27 +21,98 @@ import {
 } from '@stellar/stellar-sdk';
 import type { ChannelState } from '../types.js';
 
-/** Mutable config — call configureStellar() in Workers before first use. */
-const stellar = {
-  rpcUrl:
-    (typeof process !== 'undefined' ? process.env?.RPC_URL : undefined) ??
-    'https://soroban-testnet.stellar.org',
-  networkPassphrase:
-    typeof process !== 'undefined' && process.env?.NETWORK === 'mainnet'
-      ? Networks.PUBLIC
-      : Networks.TESTNET,
-  server: null as unknown as StellarRpc.Server,
-};
-stellar.server = new StellarRpc.Server(stellar.rpcUrl);
+// ── Config ──────────────────────────────────────────────────────────────────
 
-/** Configure RPC connection (call once at startup in Workers where process.env isn't available). */
-export function configureStellar(rpcUrl: string, network: string): void {
-  stellar.rpcUrl = rpcUrl;
-  stellar.networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-  stellar.server = new StellarRpc.Server(rpcUrl);
+let rpcUrl = 'https://soroban-rpc.testnet.stellar.gateway.fm';
+let networkPassphrase = Networks.TESTNET;
+
+/** Configure RPC connection. Call before first use in Workers. */
+export function configureStellar(url: string, network: string): void {
+  rpcUrl = url;
+  networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 }
 
-export { stellar };
+// ── Raw RPC helpers (fetch-based, Workers-compatible) ────────────────────────
+
+interface JsonRpcResponse<T = unknown> {
+  jsonrpc: string;
+  id: number;
+  result?: T;
+  error?: { code: number; message: string; data?: string };
+}
+
+async function rpcCall<T = unknown>(method: string, params?: unknown): Promise<T> {
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
+  const resp = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+  if (!resp.ok) {
+    throw new Error(`RPC ${method}: HTTP ${resp.status} ${await resp.text()}`);
+  }
+  const json = (await resp.json()) as JsonRpcResponse<T>;
+  if (json.error) {
+    throw new Error(`RPC ${method}: ${json.error.message} ${json.error.data || ''}`);
+  }
+  return json.result as T;
+}
+
+interface GetAccountResult {
+  entries: Array<{ xdr: string; lastModifiedLedgerSeq: number }>;
+  latestLedger: number;
+}
+
+async function getAccount(publicKey: string): Promise<Account> {
+  const ledgerKey = xdr.LedgerKey.account(
+    new xdr.LedgerKeyAccount({
+      accountId: Keypair.fromPublicKey(publicKey).xdrPublicKey(),
+    }),
+  );
+  const result = await rpcCall<GetAccountResult>('getLedgerEntries', {
+    keys: [ledgerKey.toXDR('base64')],
+  });
+  if (!result.entries || result.entries.length === 0) {
+    throw new Error(`Account not found: ${publicKey}`);
+  }
+  const entry = xdr.LedgerEntryData.fromXDR(result.entries[0].xdr, 'base64');
+  const seqNum = entry.account().seqNum().toString();
+  return new Account(publicKey, seqNum);
+}
+
+async function simulateTransaction(
+  tx: ReturnType<TransactionBuilder['build']>,
+): Promise<StellarRpc.Api.SimulateTransactionResponse> {
+  const raw = await rpcCall<StellarRpc.Api.RawSimulateTransactionResponse>('simulateTransaction', {
+    transaction: tx.toXDR(),
+  });
+  return StellarRpc.parseRawSimulation(raw);
+}
+
+interface SendResult {
+  hash: string;
+  status: string;
+  errorResultXdr?: string;
+}
+
+async function sendTransaction(tx: { toXDR(): string }): Promise<SendResult> {
+  return rpcCall<SendResult>('sendTransaction', {
+    transaction: tx.toXDR(),
+  });
+}
+
+interface GetTxResult {
+  status: string;
+  resultXdr?: string;
+  resultMetaXdr?: string;
+  ledger?: number;
+}
+
+async function getTransaction(hash: string): Promise<GetTxResult> {
+  return rpcCall<GetTxResult>('getTransaction', { hash });
+}
+
+// ── Contract invocation with fee-bump relaying ───────────────────────────────
 
 /**
  * Invoke a contract with fee-bump relaying.
@@ -49,10 +129,10 @@ async function invokeContractRelayed(
   args: xdr.ScVal[],
 ): Promise<string> {
   // Build inner tx with agent as source (needed for require_auth + sequence)
-  const account = await stellar.server.getAccount(agentKeypair.publicKey());
+  const account = await getAccount(agentKeypair.publicKey());
   const innerTx = new TransactionBuilder(account, {
     fee: BASE_FEE,
-    networkPassphrase: stellar.networkPassphrase,
+    networkPassphrase,
   })
     .addOperation(
       Operation.invokeContractFunction({
@@ -65,7 +145,7 @@ async function invokeContractRelayed(
     .build();
 
   // Simulate to get resource estimates + auth entries
-  const sim = await stellar.server.simulateTransaction(innerTx);
+  const sim = await simulateTransaction(innerTx);
   if (StellarRpc.Api.isSimulationError(sim)) {
     throw new Error(`simulation failed: ${sim.error}`);
   }
@@ -79,37 +159,33 @@ async function invokeContractRelayed(
     relayerKeypair,
     String(Number(assembled.fee) * 2 + 100000),
     assembled,
-    stellar.networkPassphrase,
+    networkPassphrase,
   );
   feeBump.sign(relayerKeypair);
 
   // Submit the fee-bumped transaction
-  const result = await stellar.server.sendTransaction(feeBump);
+  const result = await sendTransaction(feeBump);
   if (result.status === 'ERROR') throw new Error(`submit error: ${JSON.stringify(result)}`);
 
-  let response = await stellar.server.getTransaction(result.hash);
-  while (response.status === StellarRpc.Api.GetTransactionStatus.NOT_FOUND) {
+  // Poll for confirmation
+  let txResult = await getTransaction(result.hash);
+  while (txResult.status === 'NOT_FOUND') {
     await new Promise((r) => setTimeout(r, 1500));
-    response = await stellar.server.getTransaction(result.hash);
+    txResult = await getTransaction(result.hash);
   }
-  if (response.status === StellarRpc.Api.GetTransactionStatus.FAILED) {
-    throw new Error(`tx failed: ${JSON.stringify(response)}`);
+  if (txResult.status === 'FAILED') {
+    throw new Error(`tx failed: ${JSON.stringify(txResult)}`);
   }
   return result.hash;
 }
 
+// ── High-level channel operations ────────────────────────────────────────────
+
 /**
  * Open a payment channel on-chain.
  *
- * The facilitator acts as a fee relayer — agent signs the contract
- * invocation (authorizing the USDC deposit), facilitator pays XLM fees
- * via a fee-bump transaction.
- *
  * @param serverPayTo     G... address that receives server_balance on close
  * @param serverSigningKey G... public key the server uses to counter-sign states
- *                         (defaults to serverPayTo if not provided — for the NFT
- *                          service these are different: payTo is the merchant,
- *                          signingKey is CHANNEL_SERVER_SECRET's public key)
  */
 export async function openChannelOnChain(
   facilitatorKeypair: Keypair,
@@ -148,8 +224,6 @@ export async function openChannelOnChain(
  * Close a payment channel on-chain, settling final balances.
  *
  * Uses fee-bump relaying so the facilitator pays XLM fees.
- * close_channel has no require_auth — anyone can submit the final
- * mutually-signed state. We use the agent as inner source for consistency.
  */
 export async function closeChannelOnChain(
   facilitatorKeypair: Keypair,
