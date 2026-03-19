@@ -139,22 +139,14 @@ async function main(): Promise<void> {
   // 6. Write .env.testnet
   const env = [
     `AGENT_SECRET=${agent.secret()}`,
-    `AGENT_PUBLIC=${agent.publicKey()}`,
     `FACILITATOR_SECRET=${facilitator.secret()}`,
-    `FACILITATOR_PUBLIC=${facilitator.publicKey()}`,
-    `CHANNEL_SERVER_SECRET=${channelServer.secret()}`,
     `CHANNEL_SERVER_PUBLIC=${channelServer.publicKey()}`,
     `NFT_SERVICE_PAY_TO=${NFT_SERVICE_PAY_TO}`,
     `NFT_SERVICE_URL=${NFT_SERVICE_URL}`,
     `USDC_CONTRACT_ID=${USDC_CONTRACT_ID}`,
-    `TOKEN_CONTRACT_ID=${USDC_CONTRACT_ID}`,
     `CHANNEL_CONTRACT_ID=${channelContractId}`,
     `NETWORK=testnet`,
     `RPC_URL=https://soroban-testnet.stellar.org`,
-    `HORIZON_URL=${TESTNET_HORIZON}`,
-    `SERVER_PORT=3001`,
-    `FACILITATOR_PORT=3002`,
-    `BENCHMARK_CALLS=20`,
   ].join('\n');
 
   writeFileSync('../.env.testnet', env + '\n');

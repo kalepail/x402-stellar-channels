@@ -235,6 +235,147 @@ fn test_finalize_before_window_panics() {
 }
 
 #[test]
+fn test_dispute_on_closing_channel_fails() {
+    let ctx = TestCtx::new();
+    let env = &ctx.env;
+
+    let iteration: u64 = 1;
+    let agent_balance: i128 = 90_0000;
+    let server_balance: i128 = 10_0000;
+
+    let agent_sig = sign_state(
+        env,
+        &ctx.agent_sk,
+        &ctx.channel_id,
+        iteration,
+        agent_balance,
+        server_balance,
+    );
+    let state = ChannelState {
+        channel_id: ctx.channel_id.clone(),
+        iteration,
+        agent_balance,
+        server_balance,
+    };
+
+    ctx.client
+        .initiate_dispute(&ctx.channel_id, &state, &agent_sig, &true);
+
+    // Second initiate_dispute on the same (now Closing) channel should fail
+    let iter2: u64 = 2;
+    let ab2: i128 = 85_0000;
+    let sb2: i128 = 15_0000;
+    let agent_sig2 = sign_state(env, &ctx.agent_sk, &ctx.channel_id, iter2, ab2, sb2);
+    let state2 = ChannelState {
+        channel_id: ctx.channel_id.clone(),
+        iteration: iter2,
+        agent_balance: ab2,
+        server_balance: sb2,
+    };
+    let result = ctx
+        .client
+        .try_initiate_dispute(&ctx.channel_id, &state2, &agent_sig2, &true);
+    assert!(
+        result.is_err(),
+        "initiate_dispute should fail on a Closing channel"
+    );
+}
+
+#[test]
+fn test_resolve_with_same_iteration_fails() {
+    let ctx = TestCtx::new();
+    let env = &ctx.env;
+
+    let iteration: u64 = 3;
+    let agent_balance: i128 = 90_0000;
+    let server_balance: i128 = 10_0000;
+
+    let agent_sig = sign_state(
+        env,
+        &ctx.agent_sk,
+        &ctx.channel_id,
+        iteration,
+        agent_balance,
+        server_balance,
+    );
+    let state = ChannelState {
+        channel_id: ctx.channel_id.clone(),
+        iteration,
+        agent_balance,
+        server_balance,
+    };
+    ctx.client
+        .initiate_dispute(&ctx.channel_id, &state, &agent_sig, &true);
+
+    // Try to resolve with the same iteration — should fail (must be strictly higher)
+    let server_sig = sign_state(
+        env,
+        &ctx.server_sk,
+        &ctx.channel_id,
+        iteration,
+        agent_balance,
+        server_balance,
+    );
+    let result = ctx
+        .client
+        .try_resolve_dispute(&ctx.channel_id, &state, &agent_sig, &server_sig);
+    assert!(
+        result.is_err(),
+        "resolve_dispute should fail with same iteration as dispute state"
+    );
+}
+
+#[test]
+fn test_resolve_after_window_expired_fails() {
+    let ctx = TestCtx::new();
+    let env = &ctx.env;
+
+    let iteration: u64 = 1;
+    let agent_balance: i128 = 90_0000;
+    let server_balance: i128 = 10_0000;
+
+    let agent_sig = sign_state(
+        env,
+        &ctx.agent_sk,
+        &ctx.channel_id,
+        iteration,
+        agent_balance,
+        server_balance,
+    );
+    let state = ChannelState {
+        channel_id: ctx.channel_id.clone(),
+        iteration,
+        agent_balance,
+        server_balance,
+    };
+    ctx.client
+        .initiate_dispute(&ctx.channel_id, &state, &agent_sig, &true);
+
+    // Advance past the observation window
+    env.ledger().with_mut(|l| l.sequence_number += 600);
+
+    // Try to resolve — window has expired
+    let iter2: u64 = 5;
+    let ab2: i128 = 85_0000;
+    let sb2: i128 = 15_0000;
+    let agent_sig2 = sign_state(env, &ctx.agent_sk, &ctx.channel_id, iter2, ab2, sb2);
+    let server_sig2 = sign_state(env, &ctx.server_sk, &ctx.channel_id, iter2, ab2, sb2);
+    let state2 = ChannelState {
+        channel_id: ctx.channel_id.clone(),
+        iteration: iter2,
+        agent_balance: ab2,
+        server_balance: sb2,
+    };
+    let result =
+        ctx.client
+            .try_resolve_dispute(&ctx.channel_id, &state2, &agent_sig2, &server_sig2);
+    assert!(
+        result.is_err(),
+        "resolve_dispute should fail after observation window expired"
+    );
+}
+
+#[test]
 fn test_resolve_requires_both_sigs() {
     let ctx = TestCtx::new();
     let env = &ctx.env;

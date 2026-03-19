@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { Keypair } from '@stellar/stellar-sdk';
-import { signState, verifyState, stateMessage } from '../src/crypto.js';
+import {
+  signState,
+  verifyState,
+  stateMessage,
+  deriveChannelId,
+  pubkeyBytes,
+} from '../src/crypto.js';
 
 describe('stateMessage', () => {
   it('produces 72-byte output', () => {
@@ -73,5 +79,31 @@ describe('signState / verifyState', () => {
     const large = 100_000_000_000_000n;
     const sig = signState(kp, channelId, 1000n, large, large);
     expect(() => verifyState(kp.publicKey(), sig, channelId, 1000n, large, large)).not.toThrow();
+  });
+});
+
+describe('deriveChannelId', () => {
+  it('produces 32-byte output', async () => {
+    const pk = pubkeyBytes(Keypair.random().publicKey());
+    const nonce = new Uint8Array(32);
+    const id = await deriveChannelId(pk, nonce);
+    expect(id.length).toBe(32);
+  });
+
+  it('different nonce → different channel_id', async () => {
+    const pk = pubkeyBytes(Keypair.random().publicKey());
+    const n1 = new Uint8Array(32).fill(1);
+    const n2 = new Uint8Array(32).fill(2);
+    const id1 = await deriveChannelId(pk, n1);
+    const id2 = await deriveChannelId(pk, n2);
+    expect(id1.equals(id2)).toBe(false);
+  });
+
+  it('same inputs → same channel_id (deterministic)', async () => {
+    const pk = pubkeyBytes(Keypair.random().publicKey());
+    const nonce = new Uint8Array(32).fill(0xaa);
+    const id1 = await deriveChannelId(pk, nonce);
+    const id2 = await deriveChannelId(pk, nonce);
+    expect(id1.equals(id2)).toBe(true);
   });
 });

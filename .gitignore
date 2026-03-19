@@ -1,12 +1,20 @@
 target/
-contract/target/
 node_modules/
-demo/node_modules/
-.env.testnet
-*.env
-.dev.vars
-.wrangler/
 dist/
+
+*.env
+.env.testnet
+.dev.vars
+
+.wrangler/
 *.wasm
-*.optimized.wasm
 benchmark-results.json
+
+# Test artifacts
+contract/test_snapshots/
+
+# OS / editor
+.DS_Store
+
+# Claude Code
+.claude/

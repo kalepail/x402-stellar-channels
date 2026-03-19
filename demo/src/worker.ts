@@ -10,7 +10,6 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { Keypair } from '@stellar/stellar-sdk';
-import { randomBytes } from 'node:crypto';
 import { signState, verifyState, deriveChannelId, pubkeyBytes } from './crypto.js';
 import {
   openChannelOnChain,
@@ -54,12 +53,12 @@ app.get('/api/run/channel', (c) => {
     env.RPC_URL || 'https://soroban-rpc.testnet.stellar.gateway.fm',
     env.NETWORK || 'testnet',
   );
-  const nftServiceUrl = env.NFT_SERVICE_URL || 'https://x402-nft-service.sdf-ecosystem.workers.dev';
+  const nftServiceUrl = env.NFT_SERVICE_URL || 'https://x402-nft.stellar.buzz';
   const agentKeypair = Keypair.fromSecret(env.AGENT_SECRET);
   const facilitatorKeypair = Keypair.fromSecret(env.FACILITATOR_SECRET);
   const channelServerPublic = env.CHANNEL_SERVER_PUBLIC;
   const nftServicePayTo = env.NFT_SERVICE_PAY_TO;
-  const usdcContractId = env.USDC_CONTRACT_ID || env.TOKEN_CONTRACT_ID;
+  const usdcContractId = env.USDC_CONTRACT_ID;
   const channelContractId = env.CHANNEL_CONTRACT_ID;
 
   const count = Math.min(parseInt(c.req.query('count') || '100'), 500);
@@ -85,9 +84,9 @@ app.get('/api/run/channel', (c) => {
       if (aborted) return;
 
       const openStart = performance.now();
-      const nonce = randomBytes(32);
+      const nonce = crypto.getRandomValues(new Uint8Array(32));
       const agentPkBytes = pubkeyBytes(agentKeypair.publicKey());
-      const channelIdBuf = deriveChannelId(agentPkBytes, nonce);
+      const channelIdBuf = await deriveChannelId(agentPkBytes, nonce);
       const channelId = channelIdBuf.toString('hex');
 
       const openTxHash = await retry(() =>
@@ -307,6 +306,10 @@ app.get('/api/run/channel', (c) => {
 });
 
 // ── Vanilla (simulated at real Stellar speed) ────────────────────────────────
+// NOTE: This side simulates traditional x402 timing — it sleeps for one Stellar
+// ledger close (~5s) per image and generates placeholder SVGs locally. It does
+// NOT hit the NFT service or Stellar network. The channel side above does real
+// network requests. The comparison is timing-honest but the workload differs.
 app.get('/api/run/vanilla', (c) => {
   const count = Math.min(parseInt(c.req.query('count') || '100'), 500);
 
@@ -390,7 +393,7 @@ function generatePlaceholder(seed: number): string {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Errors matching these patterns are not transient — retrying won't help. */
 const FATAL_PATTERNS = ['Account not found', 'Keypair', 'invalid secret'];
@@ -406,7 +409,7 @@ async function retry<T>(fn: () => Promise<T>, maxAttempts = 3, delayMs = 1000): 
       return await fn();
     } catch (err) {
       if (isFatal(err) || attempt === maxAttempts) throw err;
-      await sleep(delayMs * attempt);
+      await delay(delayMs * attempt);
     }
   }
   throw new Error('unreachable');

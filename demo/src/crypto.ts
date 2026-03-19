@@ -1,5 +1,4 @@
 import { Keypair, StrKey } from '@stellar/stellar-sdk';
-import { createHash } from 'node:crypto';
 
 /**
  * Builds the canonical 72-byte state message matching the Rust contract:
@@ -13,18 +12,14 @@ export function stateMessage(
 ): Buffer {
   const buf = Buffer.alloc(72);
   channelId.copy(buf, 0);
-  buf.writeBigUInt64BE(iteration, 32);
-  writeBigInt128BE(buf, agentBalance, 40);
-  writeBigInt128BE(buf, serverBalance, 56);
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  view.setBigUint64(32, iteration);
+  const mask64 = (1n << 64n) - 1n;
+  view.setBigUint64(40, (agentBalance >> 64n) & mask64);
+  view.setBigUint64(48, agentBalance & mask64);
+  view.setBigUint64(56, (serverBalance >> 64n) & mask64);
+  view.setBigUint64(64, serverBalance & mask64);
   return buf;
-}
-
-function writeBigInt128BE(buf: Buffer, value: bigint, offset: number): void {
-  const mask64 = (BigInt(1) << BigInt(64)) - BigInt(1);
-  const hi = (value >> BigInt(64)) & mask64;
-  const lo = value & mask64;
-  buf.writeBigUInt64BE(hi, offset);
-  buf.writeBigUInt64BE(lo, offset + 8);
 }
 
 /** Signs the 72-byte state message with the given Stellar keypair. Returns 64-byte sig. */
@@ -36,7 +31,7 @@ export function signState(
   serverBalance: bigint,
 ): Buffer {
   const msg = stateMessage(channelId, iteration, agentBalance, serverBalance);
-  return Buffer.from(keypair.sign(msg));
+  return keypair.sign(msg);
 }
 
 /**
@@ -60,13 +55,19 @@ export function verifyState(
 
 /**
  * Derives channel_id matching the contract: sha256(agent_pubkey_32 || nonce_32).
- * agentPubkeyBytes: raw 32-byte ed25519 public key (from pubkeyBytes()).
+ * Uses Web Crypto API (native in CF Workers).
  */
-export function deriveChannelId(agentPubkeyBytes: Buffer, nonce: Buffer): Buffer {
-  return createHash('sha256').update(agentPubkeyBytes).update(nonce).digest();
+export async function deriveChannelId(
+  agentPubkeyBytes: Uint8Array,
+  nonce: Uint8Array,
+): Promise<Buffer> {
+  const combined = new Uint8Array(agentPubkeyBytes.length + nonce.length);
+  combined.set(agentPubkeyBytes);
+  combined.set(nonce, agentPubkeyBytes.length);
+  return Buffer.from(await crypto.subtle.digest('SHA-256', combined));
 }
 
 /** Decodes a G... strkey to raw 32-byte ed25519 public key. */
 export function pubkeyBytes(strkey: string): Buffer {
-  return Buffer.from(StrKey.decodeEd25519PublicKey(strkey));
+  return StrKey.decodeEd25519PublicKey(strkey);
 }

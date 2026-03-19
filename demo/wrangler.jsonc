@@ -3,11 +3,14 @@
   "name": "x402-stellar-channels-demo",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-03-17",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
     "binding": "ASSETS",
     "directory": "./public"
   },
+  "routes": [
+    { "pattern": "x402-channels.stellar.buzz", "custom_domain": true }
+  ],
   "observability": {
     "enabled": true
   }

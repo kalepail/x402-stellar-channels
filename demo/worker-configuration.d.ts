@@ -8,22 +8,14 @@ declare namespace Cloudflare {
 	interface Env {
 		ASSETS: Fetcher;
 		AGENT_SECRET: string;
-		AGENT_PUBLIC: string;
 		FACILITATOR_SECRET: string;
-		FACILITATOR_PUBLIC: string;
-		CHANNEL_SERVER_SECRET: string;
 		CHANNEL_SERVER_PUBLIC: string;
 		NFT_SERVICE_PAY_TO: string;
 		NFT_SERVICE_URL: string;
 		USDC_CONTRACT_ID: string;
-		TOKEN_CONTRACT_ID: string;
 		CHANNEL_CONTRACT_ID: string;
 		NETWORK: string;
 		RPC_URL: string;
-		HORIZON_URL: string;
-		SERVER_PORT: string;
-		FACILITATOR_PORT: string;
-		BENCHMARK_CALLS: string;
 	}
 }
 interface CloudflareBindings extends Cloudflare.Env {}
@@ -31,7 +23,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "AGENT_SECRET" | "AGENT_PUBLIC" | "FACILITATOR_SECRET" | "FACILITATOR_PUBLIC" | "CHANNEL_SERVER_SECRET" | "CHANNEL_SERVER_PUBLIC" | "NFT_SERVICE_PAY_TO" | "NFT_SERVICE_URL" | "USDC_CONTRACT_ID" | "TOKEN_CONTRACT_ID" | "CHANNEL_CONTRACT_ID" | "NETWORK" | "RPC_URL" | "HORIZON_URL" | "SERVER_PORT" | "FACILITATOR_PORT" | "BENCHMARK_CALLS">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "AGENT_SECRET" | "FACILITATOR_SECRET" | "CHANNEL_SERVER_PUBLIC" | "NFT_SERVICE_PAY_TO" | "NFT_SERVICE_URL" | "USDC_CONTRACT_ID" | "CHANNEL_CONTRACT_ID" | "NETWORK" | "RPC_URL">> {}
 }
 
 // Begin runtime types
