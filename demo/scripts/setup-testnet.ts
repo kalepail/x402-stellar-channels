@@ -16,7 +16,7 @@ const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const USDC_CONTRACT_ID = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';
 
 // NFT service config (matches wrangler.jsonc)
-const NFT_SERVICE_URL = 'https://x402-nft-service.sdf-ecosystem.workers.dev';
+const NFT_SERVICE_URL = 'https://x402-nft.stellar.buzz';
 const NFT_SERVICE_PAY_TO = 'GBY77G2AKKMYAW4IVYILYYH5XCPSUL2ERKNQDV4E6QZLYEOUFRCX76IM';
 
 async function fundViaFriendbot(publicKey: string): Promise<void> {
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
     `USDC_CONTRACT_ID=${USDC_CONTRACT_ID}`,
     `CHANNEL_CONTRACT_ID=${channelContractId}`,
     `NETWORK=testnet`,
-    `RPC_URL=https://soroban-testnet.stellar.org`,
+    `RPC_URL=https://soroban-rpc.testnet.stellar.gateway.fm`,
   ].join('\n');
 
   writeFileSync('../.env.testnet', env + '\n');
@@ -160,12 +160,10 @@ async function main(): Promise<void> {
     `   echo "${channelServer.secret()}" | npx wrangler secret put CHANNEL_SERVER_SECRET`,
   );
   console.log(`   npx wrangler deploy\n`);
-  console.log('2. Run the web demo:');
-  console.log('   pnpm web-demo\n');
-  console.log('3. Or run the benchmark:');
-  console.log('   pnpm facilitator  # terminal 1');
-  console.log('   pnpm api          # terminal 2');
-  console.log('   pnpm benchmark    # terminal 3');
+  console.log('2. Run the demo locally:');
+  console.log('   pnpm dev\n');
+  console.log('3. Or deploy to Cloudflare:');
+  console.log('   pnpm deploy');
 }
 
 main().catch((err) => {
