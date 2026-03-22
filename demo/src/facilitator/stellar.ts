@@ -138,6 +138,53 @@ export async function openChannelOnChain(
 }
 
 /**
+ * Build and sign the inner open_channel transaction without submitting it.
+ *
+ * This is used by x402 channel clients that send the signed transaction to a
+ * resource server/facilitator, which then wraps it in a fee-bump and submits.
+ */
+export async function prepareOpenChannelTransaction(
+  agentKeypair: Keypair,
+  serverPayTo: string,
+  serverSigningKey: string | undefined,
+  assetContractId: string,
+  channelContractId: string,
+  deposit: bigint,
+  nonce: Uint8Array,
+): Promise<string> {
+  const agentPubkeyBytes = StrKey.decodeEd25519PublicKey(agentKeypair.publicKey());
+  const signingKey = serverSigningKey || serverPayTo;
+  const serverPubkeyBytes = StrKey.decodeEd25519PublicKey(signingKey);
+
+  const account = await server.getAccount(agentKeypair.publicKey());
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(
+      Operation.invokeContractFunction({
+        contract: channelContractId,
+        function: 'open_channel',
+        args: [
+          new Address(agentKeypair.publicKey()).toScVal(),
+          xdr.ScVal.scvBytes(agentPubkeyBytes),
+          new Address(serverPayTo).toScVal(),
+          xdr.ScVal.scvBytes(serverPubkeyBytes),
+          new Address(assetContractId).toScVal(),
+          nativeToScVal(deposit, { type: 'i128' }),
+          xdr.ScVal.scvBytes(Buffer.from(nonce)),
+        ],
+      }),
+    )
+    .setTimeout(30)
+    .build();
+
+  const prepared = await server.prepareTransaction(tx);
+  prepared.sign(agentKeypair);
+  return prepared.toXDR();
+}
+
+/**
  * Close a payment channel on-chain, settling final balances.
  *
  * Uses fee-bump relaying so the facilitator pays XLM fees.

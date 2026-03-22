@@ -34,6 +34,14 @@ export function signState(
   return keypair.sign(msg);
 }
 
+export function closeIntentMessage(channelId: Buffer): Buffer {
+  return Buffer.concat([channelId, Buffer.from('close', 'utf8')]);
+}
+
+export function signCloseIntent(keypair: Keypair, channelId: Buffer): Buffer {
+  return keypair.sign(closeIntentMessage(channelId));
+}
+
 /**
  * Verifies a state signature. Throws if invalid.
  * publicKeyStrkey: G... Stellar public key.
@@ -50,6 +58,18 @@ export function verifyState(
   const kp = Keypair.fromPublicKey(publicKeyStrkey);
   if (!kp.verify(msg, sig)) {
     throw new Error('invalid state signature');
+  }
+}
+
+export function verifyCloseIntent(
+  publicKeyStrkey: string,
+  sig: Buffer,
+  channelId: Buffer,
+): void {
+  const msg = closeIntentMessage(channelId);
+  const kp = Keypair.fromPublicKey(publicKeyStrkey);
+  if (!kp.verify(msg, sig)) {
+    throw new Error('invalid close intent signature');
   }
 }
 

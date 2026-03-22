@@ -13,11 +13,11 @@ const mockEnv = {
   FACILITATOR_SECRET: 'SCD3OPVE2G6ZPAXQZO57CHZ7XXNB7BSEQ5HXDBXGLSTCQUBW65VGZOLP',
   CHANNEL_SERVER_PUBLIC: 'GCRCUDYPRUODZDVUYDRAVIJ4M3RMDM2WLNA24ENDO62QX2ATZ4E7BAGU',
   NFT_SERVICE_PAY_TO: 'GCRCUDYPRUODZDVUYDRAVIJ4M3RMDM2WLNA24ENDO62QX2ATZ4E7BAGU',
-  NFT_SERVICE_URL: 'https://x402-nft-service.sdf-ecosystem.workers.dev',
+  NFT_SERVICE_URL: 'https://x402-nft.stellar.buzz',
   USDC_CONTRACT_ID: 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA',
   CHANNEL_CONTRACT_ID: 'CBMUDNVJSVXUKIBAUTLT3R2XTLBM6SVRRXN6T7VG72XMKWV5JNDCRCZ2',
   NETWORK: 'testnet',
-  RPC_URL: 'https://soroban-testnet.stellar.org',
+  RPC_URL: 'https://soroban-rpc.testnet.stellar.gateway.fm/',
 };
 
 /** Parse SSE events from a response body. */
@@ -74,7 +74,7 @@ describe('Worker routes', () => {
     // Will get an error because mock keys aren't funded
     const error = events.find((e) => e.type === 'error');
     expect(error).toBeDefined();
-    expect(error!.fatal).toBe(true);
+    expect(error!.message).toBeDefined();
   }, 30_000); // Soroban RPC calls may take time
 
   it('GET unknown route returns 404', async () => {

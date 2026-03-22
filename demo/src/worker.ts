@@ -10,12 +10,8 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { Keypair } from '@stellar/stellar-sdk';
-import { signState, verifyState, deriveChannelId, pubkeyBytes } from './crypto.js';
-import {
-  openChannelOnChain,
-  closeChannelOnChain,
-  configureStellar,
-} from './facilitator/stellar.js';
+import { signCloseIntent, signState, verifyState } from './crypto.js';
+import { configureStellar, prepareOpenChannelTransaction } from './facilitator/stellar.js';
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
@@ -27,20 +23,31 @@ const STELLAR_CLOSE_TIME_MS = 5_000;
 const CONCURRENCY = 6;
 const STYLE = 'attractor';
 
+function toBase64(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64');
+}
+
+function fromBase64(value: string): string {
+  return Buffer.from(value, 'base64').toString('utf8');
+}
+
+function parseJsonBody(text: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 // ── Channel run (REAL testnet purchases) ─────────────────────────────────────
 app.get('/api/run/channel', (c) => {
   const env = c.env;
   configureStellar(
-    env.RPC_URL || 'https://soroban-rpc.testnet.stellar.gateway.fm',
+    env.RPC_URL || 'https://soroban-rpc.testnet.stellar.gateway.fm/',
     env.NETWORK || 'testnet',
   );
   const nftServiceUrl = env.NFT_SERVICE_URL || 'https://x402-nft.stellar.buzz';
   const agentKeypair = Keypair.fromSecret(env.AGENT_SECRET);
-  const facilitatorKeypair = Keypair.fromSecret(env.FACILITATOR_SECRET);
-  const channelServerPublic = env.CHANNEL_SERVER_PUBLIC;
-  const nftServicePayTo = env.NFT_SERVICE_PAY_TO;
-  const usdcContractId = env.USDC_CONTRACT_ID;
-  const channelContractId = env.CHANNEL_CONTRACT_ID;
 
   const count = Math.min(parseInt(c.req.query('count') || '100'), 500);
   const deposit = PRICE * BigInt(count + 10);
@@ -64,23 +71,78 @@ app.get('/api/run/channel', (c) => {
       if (aborted) return;
 
       const openStart = performance.now();
-      const nonce = crypto.getRandomValues(new Uint8Array(32));
-      const agentPkBytes = pubkeyBytes(agentKeypair.publicKey());
-      const channelIdBuf = await deriveChannelId(agentPkBytes, nonce);
-      const channelId = channelIdBuf.toString('hex');
+      const challengeResp = await fetch(`${nftServiceUrl}/mint/${STYLE}?format=svg&size=100`, {
+        headers: { Accept: 'image/svg+xml' },
+      });
+      if (challengeResp.status !== 402) {
+        throw new Error(`Expected 402 challenge, got ${challengeResp.status}`);
+      }
+      const paymentRequiredHeader = challengeResp.headers.get('PAYMENT-REQUIRED');
+      if (!paymentRequiredHeader) {
+        throw new Error('NFT service did not return PAYMENT-REQUIRED');
+      }
+      const paymentRequired = JSON.parse(fromBase64(paymentRequiredHeader)) as {
+        x402Version: number;
+        resource?: Record<string, unknown>;
+        accepts: Array<Record<string, unknown>>;
+      };
+      const channelAccept = paymentRequired.accepts.find((item) => item.scheme === 'channel');
+      if (!channelAccept) {
+        throw new Error('NFT service did not advertise x402 channel support');
+      }
+      const extra = channelAccept.extra as Record<string, unknown>;
+      const serverPublicKey = String(extra.serverPublicKey ?? channelAccept.serverPublicKey ?? '');
+      const channelContractId = String(extra.channelContract ?? channelAccept.channelContract ?? '');
+      if (!serverPublicKey || !channelContractId) {
+        throw new Error('Channel offer is missing serverPublicKey or channelContract');
+      }
 
-      const openTxHash = await retry(() =>
-        openChannelOnChain(
-          facilitatorKeypair,
-          agentKeypair,
-          nftServicePayTo,
-          channelServerPublic,
-          usdcContractId,
-          channelContractId,
-          deposit,
-          nonce,
+      const nonce = crypto.getRandomValues(new Uint8Array(32));
+      const transaction = await prepareOpenChannelTransaction(
+        agentKeypair,
+        String(channelAccept.payTo),
+        serverPublicKey,
+        String(channelAccept.asset),
+        channelContractId,
+        deposit,
+        nonce,
+      );
+      const channelIdBuf = Buffer.from(
+        await crypto.subtle.digest(
+          'SHA-256',
+          new Uint8Array([
+            ...agentKeypair.rawPublicKey(),
+            ...nonce,
+          ]),
         ),
       );
+      const channelId = channelIdBuf.toString('hex');
+      const initialStateSignature = signState(agentKeypair, channelIdBuf, 0n, deposit, 0n);
+      const openPayload = toBase64(
+        JSON.stringify({
+          x402Version: paymentRequired.x402Version,
+          resource: paymentRequired.resource,
+          accepted: channelAccept,
+          payload: {
+            action: 'open',
+            transaction,
+            initialStateSignature: initialStateSignature.toString('hex'),
+          },
+        }),
+      );
+      const openResp = await retry(() =>
+        fetch(`${nftServiceUrl}/mint/${STYLE}?format=svg&size=100`, {
+          headers: { 'payment-signature': openPayload, Accept: 'image/svg+xml' },
+        }),
+      );
+      if (!openResp.ok) {
+        throw new Error(`Open failed with HTTP ${openResp.status}: ${(await openResp.text()).slice(0, 500)}`);
+      }
+      const openBody = (await openResp.json()) as Record<string, unknown>;
+      const openTxHash = String(openBody.transaction ?? '');
+      if (!openTxHash) {
+        throw new Error('Open response did not include transaction hash');
+      }
 
       if (aborted) return;
 
@@ -147,16 +209,21 @@ app.get('/api/run/channel', (c) => {
             const idx = batchStart + batchIdx;
             const seed = Date.now() + idx;
 
-            const header = JSON.stringify({
-              scheme: 'channel',
-              channelId,
-              iteration: String(st.iteration),
-              agentBalance: String(st.agentBalance),
-              serverBalance: String(st.serverBalance),
-              deposit: String(deposit),
-              agentPublicKey: agentKeypair.publicKey(),
-              agentSig: st.sig.toString('hex'),
-            });
+            const header = toBase64(
+              JSON.stringify({
+                x402Version: paymentRequired.x402Version,
+                resource: paymentRequired.resource,
+                accepted: channelAccept,
+                payload: {
+                  action: 'pay',
+                  channelId,
+                  iteration: String(st.iteration),
+                  agentBalance: String(st.agentBalance),
+                  serverBalance: String(st.serverBalance),
+                  agentSig: st.sig.toString('hex'),
+                },
+              }),
+            );
 
             const resp = await retry(async () => {
               const r = await fetch(
@@ -175,11 +242,18 @@ app.get('/api/run/channel', (c) => {
             const svg = await resp.text();
 
             const respHeader = resp.headers.get('x-payment-response');
-            if (respHeader) {
-              const parsed = JSON.parse(respHeader);
-              const serverSig = Buffer.from(parsed.serverSig, 'hex');
+            const settlementHeader = resp.headers.get('PAYMENT-RESPONSE');
+            const settlement = settlementHeader
+              ? (parseJsonBody(fromBase64(settlementHeader)) ?? {})
+              : {};
+            const serverSigHex =
+              respHeader
+                ? String((JSON.parse(respHeader) as Record<string, unknown>).serverSig ?? '')
+                : String((settlement.serverSig as string | undefined) ?? '');
+            if (serverSigHex) {
+              const serverSig = Buffer.from(serverSigHex, 'hex');
               verifyState(
-                channelServerPublic,
+                serverPublicKey,
                 serverSig,
                 channelIdBuf,
                 st.iteration,
@@ -232,30 +306,28 @@ app.get('/api/run/channel', (c) => {
 
       const closeStart = performance.now();
       let closeTxHash = '';
-
-      const highestIdx = [...serverSigs.keys()].sort((a, b) => b - a)[0];
-
-      if (highestIdx !== undefined && completed > 0) {
-        const finalState = signed[highestIdx];
-        const finalServerSig = serverSigs.get(highestIdx)!;
-        const agentSig = finalState.sig;
-
-        closeTxHash = await retry(() =>
-          closeChannelOnChain(
-            facilitatorKeypair,
-            agentKeypair,
-            channelContractId,
-            {
-              channelId,
-              iteration: finalState.iteration,
-              agentBalance: finalState.agentBalance,
-              serverBalance: finalState.serverBalance,
-            },
-            agentSig,
-            finalServerSig,
-          ),
-        );
+      const closePayload = toBase64(
+        JSON.stringify({
+          x402Version: paymentRequired.x402Version,
+          resource: paymentRequired.resource,
+          accepted: channelAccept,
+          payload: {
+            action: 'close',
+            channelId,
+            signature: signCloseIntent(agentKeypair, channelIdBuf).toString('hex'),
+          },
+        }),
+      );
+      const closeResp = await retry(() =>
+        fetch(`${nftServiceUrl}/mint/${STYLE}?format=svg&size=100`, {
+          headers: { 'payment-signature': closePayload, Accept: 'application/json' },
+        }),
+      );
+      if (!closeResp.ok) {
+        throw new Error(`Close failed with HTTP ${closeResp.status}: ${(await closeResp.text()).slice(0, 500)}`);
       }
+      const closeBody = (await closeResp.json()) as Record<string, unknown>;
+      closeTxHash = String(closeBody.transaction ?? '');
 
       if (aborted) return;
 

@@ -146,7 +146,7 @@ async function main(): Promise<void> {
     `USDC_CONTRACT_ID=${USDC_CONTRACT_ID}`,
     `CHANNEL_CONTRACT_ID=${channelContractId}`,
     `NETWORK=testnet`,
-    `RPC_URL=https://soroban-rpc.testnet.stellar.gateway.fm`,
+    `RPC_URL=https://soroban-rpc.testnet.stellar.gateway.fm/`,
   ].join('\n');
 
   writeFileSync('../.env.testnet', env + '\n');
@@ -158,6 +158,12 @@ async function main(): Promise<void> {
   console.log(`   cd /path/to/x402-nft-service`);
   console.log(
     `   echo "${channelServer.secret()}" | npx wrangler secret put CHANNEL_SERVER_SECRET`,
+  );
+  console.log(
+    `   echo "${facilitator.secret()}" | npx wrangler secret put CHANNEL_FACILITATOR_SECRET`,
+  );
+  console.log(
+    `   # CHANNEL_CONTRACT_ID and CHANNEL_RPC_URL are already set in wrangler.jsonc defaults`,
   );
   console.log(`   npx wrangler deploy\n`);
   console.log('2. Run the demo locally:');
