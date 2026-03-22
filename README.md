@@ -41,10 +41,15 @@ cd demo
 # Set secrets (values come from .env.testnet)
 wrangler secret put AGENT_SECRET
 wrangler secret put FACILITATOR_SECRET
-wrangler secret put CHANNEL_SERVER_PUBLIC
-wrangler secret put NFT_SERVICE_PAY_TO
-wrangler secret put USDC_CONTRACT_ID
-wrangler secret put CHANNEL_CONTRACT_ID
+
+# Public config lives in demo/wrangler.jsonc vars:
+# CHANNEL_SERVER_PUBLIC
+# NFT_SERVICE_PAY_TO
+# NFT_SERVICE_URL
+# USDC_CONTRACT_ID
+# CHANNEL_CONTRACT_ID
+# NETWORK
+# RPC_URL
 
 pnpm deploy
 ```

@@ -12,6 +12,15 @@
   "routes": [
     { "pattern": "x402.stellar.buzz", "custom_domain": true }
   ],
+  "vars": {
+    "CHANNEL_SERVER_PUBLIC": "GB5OQC36ZERZ7JPH6SFFL4FK5OALZW7CJI24XQYO2P4LAIT7CICFSKTM",
+    "NFT_SERVICE_PAY_TO": "GBY77G2AKKMYAW4IVYILYYH5XCPSUL2ERKNQDV4E6QZLYEOUFRCX76IM",
+    "NFT_SERVICE_URL": "https://x402-nft.stellar.buzz",
+    "USDC_CONTRACT_ID": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+    "CHANNEL_CONTRACT_ID": "CBMUDNVJSVXUKIBAUTLT3R2XTLBM6SVRRXN6T7VG72XMKWV5JNDCRCZ2",
+    "NETWORK": "testnet",
+    "RPC_URL": "https://soroban-rpc.testnet.stellar.gateway.fm/"
+  },
   "observability": {
     "enabled": true
   }
