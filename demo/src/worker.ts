@@ -18,9 +18,10 @@ const app = new Hono<{ Bindings: CloudflareBindings }>();
 // ── Config ────────────────────────────────────────────────────────────────────
 const PRICE = 10_000n; // $0.001 USDC per image (7 decimals)
 const STELLAR_CLOSE_TIME_MS = 5_000;
-// CF Workers allow max 6 simultaneous outbound connections per request.
-// Using 6 keeps us at the limit without queueing stalls.
-const CONCURRENCY = 6;
+// Channel payments use pre-signed sequential states — each iteration N must
+// reach the Durable Object after N-1 is committed. Sending concurrently causes
+// out-of-order arrivals at the DO, so we process one payment at a time.
+// The speed win vs traditional x402 is still dramatic: no ledger close wait.
 const STYLE = 'attractor';
 
 function toBase64(value: string): string {
@@ -188,11 +189,11 @@ app.get('/api/run/channel', (c) => {
 
       if (aborted) return;
 
-      // Phase 3 — Purchase images from NFT service
+      // Phase 3 — Purchase images from NFT service (sequential — channel states are ordered)
       await send({
         type: 'status',
         phase: 'purchasing',
-        message: `Purchasing ${count} images from NFT service (${CONCURRENCY} concurrent)…`,
+        message: `Purchasing ${count} images from NFT service (sequential channel payments)…`,
       });
 
       const purchaseStart = performance.now();
@@ -200,96 +201,83 @@ app.get('/api/run/channel', (c) => {
       let skipped = 0;
       const serverSigs = new Map<number, Buffer>();
 
-      for (let batchStart = 0; batchStart < count && !aborted; batchStart += CONCURRENCY) {
-        const batchEnd = Math.min(batchStart + CONCURRENCY, count);
-        const batch = signed.slice(batchStart, batchEnd);
+      for (let idx = 0; idx < count && !aborted; idx++) {
+        const st = signed[idx];
+        const seed = Date.now() + idx;
 
-        const results = await Promise.allSettled(
-          batch.map(async (st, batchIdx) => {
-            const idx = batchStart + batchIdx;
-            const seed = Date.now() + idx;
-
-            const header = toBase64(
-              JSON.stringify({
-                x402Version: paymentRequired.x402Version,
-                resource: paymentRequired.resource,
-                accepted: channelAccept,
-                payload: {
-                  action: 'pay',
-                  channelId,
-                  iteration: String(st.iteration),
-                  agentBalance: String(st.agentBalance),
-                  serverBalance: String(st.serverBalance),
-                  agentSig: st.sig.toString('hex'),
-                },
-              }),
-            );
-
-            const resp = await retry(async () => {
-              const r = await fetch(
-                `${nftServiceUrl}/mint/${STYLE}?seed=${seed}&format=svg&size=100`,
-                {
-                  headers: { 'payment-signature': header, Accept: 'image/svg+xml' },
-                },
-              );
-              if (!r.ok) {
-                const body = await r.text();
-                throw new Error(`HTTP ${r.status}: ${body.slice(0, 500)}`);
-              }
-              return r;
-            });
-
-            const svg = await resp.text();
-
-            const respHeader = resp.headers.get('x-payment-response');
-            const settlementHeader = resp.headers.get('PAYMENT-RESPONSE');
-            const settlement = settlementHeader
-              ? (parseJsonBody(fromBase64(settlementHeader)) ?? {})
-              : {};
-            const serverSigHex =
-              respHeader
-                ? String((JSON.parse(respHeader) as Record<string, unknown>).serverSig ?? '')
-                : String((settlement.serverSig as string | undefined) ?? '');
-            if (serverSigHex) {
-              const serverSig = Buffer.from(serverSigHex, 'hex');
-              verifyState(
-                serverPublicKey,
-                serverSig,
-                channelIdBuf,
-                st.iteration,
-                st.agentBalance,
-                st.serverBalance,
-              );
-              serverSigs.set(idx, serverSig);
-            }
-
-            return { idx, size: svg.length, svg };
+        const header = toBase64(
+          JSON.stringify({
+            x402Version: paymentRequired.x402Version,
+            resource: paymentRequired.resource,
+            accepted: channelAccept,
+            payload: {
+              action: 'pay',
+              channelId,
+              iteration: String(st.iteration),
+              agentBalance: String(st.agentBalance),
+              serverBalance: String(st.serverBalance),
+              agentSig: st.sig.toString('hex'),
+            },
           }),
         );
 
-        if (aborted) break;
+        try {
+          const resp = await retry(async () => {
+            const r = await fetch(
+              `${nftServiceUrl}/mint/${STYLE}?seed=${seed}&format=svg&size=100`,
+              {
+                headers: { 'payment-signature': header, Accept: 'image/svg+xml' },
+              },
+            );
+            if (!r.ok) {
+              const body = await r.text();
+              throw new Error(`HTTP ${r.status}: ${body.slice(0, 500)}`);
+            }
+            return r;
+          });
 
-        for (const result of results) {
-          if (result.status === 'fulfilled') {
-            completed++;
-            const elapsed = Math.round(performance.now() - purchaseStart);
-            await send({
-              type: 'image',
-              index: result.value.idx,
-              svg: result.value.svg,
-              size: result.value.size,
-              elapsed,
-              iteration: completed,
-            });
-          } else {
-            skipped++;
-            await send({
-              type: 'skip',
-              message: result.reason?.message || 'Unknown error',
-              completed,
-              skipped,
-            });
+          const svg = await resp.text();
+
+          const respHeader = resp.headers.get('x-payment-response');
+          const settlementHeader = resp.headers.get('PAYMENT-RESPONSE');
+          const settlement = settlementHeader
+            ? (parseJsonBody(fromBase64(settlementHeader)) ?? {})
+            : {};
+          const serverSigHex =
+            respHeader
+              ? String((JSON.parse(respHeader) as Record<string, unknown>).serverSig ?? '')
+              : String((settlement.serverSig as string | undefined) ?? '');
+          if (serverSigHex) {
+            const serverSig = Buffer.from(serverSigHex, 'hex');
+            verifyState(
+              serverPublicKey,
+              serverSig,
+              channelIdBuf,
+              st.iteration,
+              st.agentBalance,
+              st.serverBalance,
+            );
+            serverSigs.set(idx, serverSig);
           }
+
+          completed++;
+          const elapsed = Math.round(performance.now() - purchaseStart);
+          await send({
+            type: 'image',
+            index: idx,
+            svg,
+            size: svg.length,
+            elapsed,
+            iteration: completed,
+          });
+        } catch (err) {
+          skipped++;
+          await send({
+            type: 'skip',
+            message: err instanceof Error ? err.message : 'Unknown error',
+            completed,
+            skipped,
+          });
         }
       }
 
